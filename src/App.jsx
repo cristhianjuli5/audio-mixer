@@ -1,10 +1,65 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Play, Pause, Square, Volume2, Disc3, Mic, Square as StopCircle, Upload, FolderOpen, Search } from 'lucide-react';
+import { Play, Pause, Square, Volume2, Disc3, Mic, Square as StopCircle, Upload, FolderOpen, Search, Trash2, SkipBack, SkipForward } from 'lucide-react';
+
+// --- UTILIDADES DE BASE DE DATOS LOCAL (IndexedDB) ---
+const DB_NAME = 'AudioForumDB';
+const STORE_NAME = 'playlist';
+
+const initDB = () => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const saveFileToDB = async (file) => {
+  const db = await initDB();
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
+  const id = `${file.name}-${file.size}`; 
+  store.put({ id, file, name: file.name, size: file.size });
+};
+
+const loadFilesFromDB = async () => {
+  const db = await initDB();
+  return new Promise((resolve) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result.map(item => item.file));
+  });
+};
+
+const removeFileFromDB = async (file) => {
+  const db = await initDB();
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
+  const id = `${file.name}-${file.size}`;
+  store.delete(id);
+};
+
+const clearDB = async () => {
+  const db = await initDB();
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
+  store.clear();
+};
+// -----------------------------------------------------
 
 const App = () => {
   // Playlist States 
   const [files, setFiles] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Playlist Auto-Player States
+  const [playlistPlayer, setPlaylistPlayer] = useState({ isPlaying: false, currentIndex: 0 });
 
   // Deck States 
   const [deckA, setDeckA] = useState({ track: null, isPlaying: false, time: 0, duration: 0, pitch: 1 });
@@ -16,7 +71,7 @@ const App = () => {
   const [eqValues, setEqValues] = useState([0, 0, 0, 0, 0, 0, 0]); // 7-band
   
   // Audio Effects (FX) States
-  const [modeA, setModeA] = useState('normal'); // 'normal', 'echo', 'radio'
+  const [modeA, setModeA] = useState('normal'); 
   const [modeB, setModeB] = useState('normal');
   
   // Recording & UI States
@@ -28,14 +83,16 @@ const App = () => {
   const [isScrubbing, setIsScrubbing] = useState(false);
   const lastMouseXRef = useRef(0);
   
-  // Refs para saber si el usuario está arrastrando la barra de progreso de un deck
+  // Refs
   const isDraggingARef = useRef(false);
   const isDraggingBRef = useRef(false);
+  const filesRef = useRef(files);
+  const playlistIndexRef = useRef(playlistPlayer.currentIndex);
 
-  // Refs de Audio
   const audioCtxRef = useRef(null);
   const audioARef = useRef(null);
   const audioBRef = useRef(null);
+  const audioPlaylistRef = useRef(null); // Ref for AutoPlay Playlist
   const gainARef = useRef(null);
   const gainBRef = useRef(null);
   const masterGainRef = useRef(null);
@@ -52,10 +109,28 @@ const App = () => {
   const fileInputRef = useRef(null);
   const playlistInputRef = useRef(null);
 
+  // Mantener los refs sincronizados con el state para el evento 'onEnded'
+  useEffect(() => { filesRef.current = files; }, [files]);
+  useEffect(() => { playlistIndexRef.current = playlistPlayer.currentIndex; }, [playlistPlayer.currentIndex]);
+
   const showToast = (msg) => {
     setUiMessage(msg);
     setTimeout(() => setUiMessage(""), 3000);
   };
+
+  useEffect(() => {
+    const fetchSavedFiles = async () => {
+      try {
+        const savedFiles = await loadFilesFromDB();
+        if (savedFiles && savedFiles.length > 0) {
+          setFiles(savedFiles);
+        }
+      } catch (error) {
+        console.error("Error al cargar la librería", error);
+      }
+    };
+    fetchSavedFiles();
+  }, []);
 
   const drawVisualizer = useCallback(function draw() {
     if (!analyserRef.current || !canvasRef.current) {
@@ -184,12 +259,14 @@ const App = () => {
 
       const srcA = ctx.createMediaElementSource(audioARef.current);
       const srcB = ctx.createMediaElementSource(audioBRef.current);
+      const srcPlaylist = ctx.createMediaElementSource(audioPlaylistRef.current);
 
       fxARef.current = createFXGraph(ctx, srcA);
       fxBRef.current = createFXGraph(ctx, srcB);
 
       const gainA = ctx.createGain();
       const gainB = ctx.createGain();
+      const gainPlaylist = ctx.createGain();
       const masterGain = ctx.createGain();
       
       gainARef.current = gainA;
@@ -215,9 +292,11 @@ const App = () => {
 
       fxARef.current.output.connect(gainA);
       fxBRef.current.output.connect(gainB);
+      srcPlaylist.connect(gainPlaylist); // Conectar playlist directo al master
 
       gainA.connect(masterGain);
       gainB.connect(masterGain);
+      gainPlaylist.connect(masterGain);
 
       let lastNode = masterGain;
       filters.forEach(filter => {
@@ -260,6 +339,64 @@ const App = () => {
     });
   }, [eqValues]);
 
+  // --- Lógica del Auto-Player de la Librería ---
+  const playPlaylistTrack = (index) => {
+    initAudio();
+    const currentFiles = filesRef.current;
+    if (index < 0 || index >= currentFiles.length) return;
+    
+    const file = currentFiles[index];
+    const objectUrl = URL.createObjectURL(file);
+    
+    if (audioPlaylistRef.current.src) URL.revokeObjectURL(audioPlaylistRef.current.src);
+    
+    audioPlaylistRef.current.src = objectUrl;
+    audioPlaylistRef.current.play().then(() => {
+      setPlaylistPlayer({ isPlaying: true, currentIndex: index });
+    }).catch(e => console.error("Error reproduciendo lista", e));
+  };
+
+  const handlePlaylistEnded = () => {
+    const nextIndex = playlistIndexRef.current + 1;
+    if (nextIndex < filesRef.current.length) {
+      playPlaylistTrack(nextIndex);
+    } else {
+      setPlaylistPlayer(prev => ({ ...prev, isPlaying: false, currentIndex: 0 }));
+    }
+  };
+
+  const togglePlaylistPlay = () => {
+    initAudio();
+    if (files.length === 0) return showToast("La lista está vacía.");
+    
+    if (playlistPlayer.isPlaying) {
+      audioPlaylistRef.current.pause();
+      setPlaylistPlayer(prev => ({ ...prev, isPlaying: false }));
+    } else {
+      if (!audioPlaylistRef.current.src || audioPlaylistRef.current.ended) {
+        playPlaylistTrack(playlistPlayer.currentIndex);
+      } else {
+        audioPlaylistRef.current.play();
+        setPlaylistPlayer(prev => ({ ...prev, isPlaying: true }));
+      }
+    }
+  };
+
+  const playPlaylistNext = () => {
+    if (playlistPlayer.currentIndex + 1 < files.length) {
+      playPlaylistTrack(playlistPlayer.currentIndex + 1);
+    }
+  };
+
+  const playPlaylistPrev = () => {
+    if (playlistPlayer.currentIndex - 1 >= 0) {
+      playPlaylistTrack(playlistPlayer.currentIndex - 1);
+    } else {
+      audioPlaylistRef.current.currentTime = 0; // Reiniciar si es la primera
+    }
+  };
+  // ---------------------------------------------
+
   const triggerLoad = (deckId) => {
     setTargetDeck(deckId);
     fileInputRef.current.click();
@@ -288,20 +425,57 @@ const App = () => {
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (!file || !targetDeck) return;
-    
     loadTrackToDeck(file, targetDeck);
-    
     setTargetDeck(null);
     e.target.value = null; 
   };
 
-  const handlePlaylistChange = (e) => {
+  const handlePlaylistChange = async (e) => {
     const newFiles = Array.from(e.target.files);
     if (newFiles.length > 0) {
-      setFiles(prev => [...prev, ...newFiles]);
-      showToast(`${newFiles.length} pistas añadidas a la librería.`);
+      const currentFileIds = files.map(f => `${f.name}-${f.size}`);
+      const uniqueNewFiles = newFiles.filter(f => !currentFileIds.includes(`${f.name}-${f.size}`));
+
+      if (uniqueNewFiles.length > 0) {
+        for (const file of uniqueNewFiles) {
+          await saveFileToDB(file);
+        }
+        setFiles(prev => [...prev, ...uniqueNewFiles]);
+        showToast(`${uniqueNewFiles.length} pistas guardadas en la librería.`);
+      } else {
+        showToast(`Las pistas seleccionadas ya están en la librería.`);
+      }
     }
     e.target.value = null;
+  };
+
+  const removeTrackFromPlaylist = async (fileToRemove) => {
+    const indexToRemove = files.indexOf(fileToRemove);
+    await removeFileFromDB(fileToRemove);
+    
+    setFiles(prev => prev.filter(f => f !== fileToRemove));
+    
+    // Si eliminamos la canción que está sonando en el AutoPlay
+    if (playlistPlayer.currentIndex === indexToRemove) {
+      audioPlaylistRef.current.pause();
+      audioPlaylistRef.current.src = "";
+      setPlaylistPlayer({ isPlaying: false, currentIndex: 0 });
+    } else if (playlistPlayer.currentIndex > indexToRemove) {
+      setPlaylistPlayer(prev => ({ ...prev, currentIndex: prev.currentIndex - 1 }));
+    }
+    showToast(`Pista eliminada de la librería.`);
+  };
+
+  const clearEntirePlaylist = async () => {
+    if (window.confirm("¿Estás seguro de que quieres borrar TODA la librería de pistas guardadas?")) {
+      audioPlaylistRef.current.pause();
+      audioPlaylistRef.current.src = "";
+      setPlaylistPlayer({ isPlaying: false, currentIndex: 0 });
+      
+      await clearDB();
+      setFiles([]);
+      showToast(`Librería vaciada completamente.`);
+    }
   };
 
   const togglePlay = async (deckId) => {
@@ -531,7 +705,6 @@ const App = () => {
 
       <div className="flex gap-4 mt-auto items-center justify-between pt-4">
         <div className="flex gap-2">
-          {/* Tamaños exactos en PC (lg), un poco mas compactos en móvil */}
           <button onClick={() => togglePlay(id)} className="retro-btn w-12 h-12 lg:w-16 lg:h-14 flex justify-center items-center">
             {deckState.isPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" />}
           </button>
@@ -541,7 +714,6 @@ const App = () => {
         </div>
         
         <div className="flex items-center gap-2 bg-gray-800 p-2 rounded border border-gray-600">
-           {/* Texto vertical original preservado en PC */}
            <span className="text-[9px] text-gray-400 font-bold rotate-180 hidden lg:block" style={{writingMode: 'vertical-rl'}}>PITCH</span>
            <span className="text-[9px] text-gray-400 font-bold lg:hidden">PTCH</span>
            <div className="h-20 lg:h-28 flex items-center">
@@ -642,8 +814,12 @@ const App = () => {
         }
       `}} />
 
+      {/* Main audio elements */}
       <audio ref={audioARef} />
       <audio ref={audioBRef} />
+      {/* Hidden audio element exclusively for the Auto-Playlist */}
+      <audio ref={audioPlaylistRef} onEnded={handlePlaylistEnded} />
+
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="audio/*,.mp3,.wav,.ogg,.m4a" className="hidden" />
       <input type="file" ref={playlistInputRef} onChange={handlePlaylistChange} multiple accept="audio/*,.mp3,.wav,.ogg,.m4a" className="hidden" />
 
@@ -653,7 +829,7 @@ const App = () => {
         </div>
       )}
 
-      {/* Main Content Area - Responsivo manteniendo PC intacto */}
+      {/* Main Content Area */}
       <div className="bg-[#1e1e24] w-full p-3 lg:p-6 rounded-xl border-2 lg:border-4 border-gray-800 shadow-2xl flex flex-col gap-4 mx-auto max-w-[1200px]">
         
         {/* Header Responsivo */}
@@ -675,9 +851,7 @@ const App = () => {
         </div>
 
         {/* TOP ROW: Deck A | Center Mixer/Disc | Deck B */}
-        {/* Usamos lg: para PC (horizontal) y flex-col por defecto para moviles (vertical) */}
         <div className="flex flex-col lg:flex-row gap-4 h-auto lg:h-[360px] w-full">
-          
           <Deck id="A" deckState={deckA} />
 
           {/* CENTRAL MIXER & DISC */}
@@ -695,7 +869,7 @@ const App = () => {
               onTouchStart={handleScrubStart}
               className={`relative flex justify-center items-center h-28 w-28 lg:h-36 lg:w-36 shrink-0 aspect-square rounded-full border-[6px] border-[#15151c] bg-black shadow-[0_4px_15px_rgba(0,0,0,0.8)] my-2 cursor-grab select-none touch-none ${isScrubbing ? 'cursor-grabbing' : ''}`}
               style={{ 
-                animation: (deckA.isPlaying || deckB.isPlaying) && !isScrubbing ? 'custom-spin 2s linear infinite' : 'none',
+                animation: (deckA.isPlaying || deckB.isPlaying || playlistPlayer.isPlaying) && !isScrubbing ? 'custom-spin 2s linear infinite' : 'none',
                 transform: isScrubbing ? 'scale(0.95)' : 'scale(1)',
                 transition: 'transform 0.1s ease'
               }}
@@ -832,27 +1006,49 @@ const App = () => {
         <div className="winamp-panel p-2 rounded-lg w-full flex flex-col min-h-[250px]">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-gray-800 p-2 mb-2 border border-gray-600 rounded gap-3">
             <span className="text-xs text-gray-300 font-bold ml-1 lg:ml-2 tracking-widest flex items-center gap-2 whitespace-nowrap">
-               <FolderOpen size={16}/> LIBRERÍA LOCAL
+               <FolderOpen size={16}/> LIBRERÍA / AUTOPLAY
             </span>
+
+            {/* MINIREPRODUCTOR DE LA LISTA */}
+            <div className="flex items-center bg-black border border-gray-600 rounded px-2 gap-2 h-8">
+              <button onClick={playPlaylistPrev} className="text-gray-400 hover:text-white transition-colors"><SkipBack size={14} /></button>
+              <button 
+                 onClick={togglePlaylistPlay} 
+                 className={`font-bold flex items-center gap-1 transition-colors ${playlistPlayer.isPlaying ? 'text-green-400' : 'text-gray-400 hover:text-white'}`}
+              >
+                {playlistPlayer.isPlaying ? <Pause size={14} /> : <Play size={14} />}
+                <span className="text-[10px] tracking-wider ml-1">AUTOPLAY</span>
+              </button>
+              <button onClick={playPlaylistNext} className="text-gray-400 hover:text-white transition-colors"><SkipForward size={14} /></button>
+            </div>
             
-            <div className="flex-1 flex flex-col sm:flex-row items-center gap-3 w-full">
-               <div className="flex-1 flex items-center bg-black border border-gray-600 rounded px-2 w-full">
+            <div className="flex-1 flex flex-col sm:flex-row items-center gap-3 w-full justify-end">
+               <div className="flex-1 flex items-center bg-black border border-gray-600 rounded px-2 w-full max-w-[300px]">
                   <Search size={14} className="text-gray-400" />
                   <input 
                     type="text" 
-                    placeholder="BUSCAR PISTA..." 
+                    placeholder="BUSCAR..." 
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="bg-transparent text-xs text-green-400 font-mono outline-none p-1.5 w-full placeholder-gray-600"
                   />
                </div>
 
-               <button 
-                 onClick={() => playlistInputRef.current?.click()}
-                 className="retro-btn text-xs px-4 py-2 lg:py-1.5 font-bold w-full sm:w-auto whitespace-nowrap"
-               >
-                 + AÑADIR ARCHIVOS
-               </button>
+               <div className="flex gap-2 w-full sm:w-auto">
+                 <button 
+                   onClick={clearEntirePlaylist}
+                   className="retro-btn text-xs px-3 py-2 lg:py-1.5 font-bold w-full sm:w-auto whitespace-nowrap bg-red-900/40 text-red-200 hover:bg-red-800"
+                   title="Borrar todas las pistas guardadas"
+                 >
+                   VACIAR
+                 </button>
+                 <button 
+                   onClick={() => playlistInputRef.current?.click()}
+                   className="retro-btn text-xs px-4 py-2 lg:py-1.5 font-bold w-full sm:w-auto whitespace-nowrap"
+                 >
+                   + AÑADIR ARCHIVOS
+                 </button>
+               </div>
             </div>
           </div>
           
@@ -869,12 +1065,30 @@ const App = () => {
               </div>
             ) : (
               <ul className="space-y-1">
-                {filteredFiles.map((file, index) => (
-                  <li key={index} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-2 hover:bg-green-900/30 border-b border-gray-800 group gap-2 sm:gap-0">
-                    <span className="retro-text text-xs lg:text-base truncate w-full sm:w-auto flex-1 font-bold pl-1">
-                      {files.indexOf(file) + 1}. {file.name.replace(/\.[^/.]+$/, "")}
-                    </span>
-                    <div className="flex gap-2 w-full sm:w-auto px-1">
+                {filteredFiles.map((file, index) => {
+                  const originalIndex = files.indexOf(file);
+                  const isCurrentlyPlaying = playlistPlayer.isPlaying && playlistPlayer.currentIndex === originalIndex;
+                  return (
+                  <li key={`${file.name}-${file.size}-${index}`} 
+                      className={`flex flex-col sm:flex-row items-start sm:items-center justify-between p-2 hover:bg-gray-900 border-b border-gray-800 group gap-2 sm:gap-0 transition-colors
+                                  ${isCurrentlyPlaying ? 'bg-green-900/30 border-l-4 border-l-green-500' : 'border-l-4 border-l-transparent'}`}>
+                    
+                    <div className="flex items-center flex-1 w-full sm:w-auto truncate overflow-hidden">
+                      {/* Botón para reproducir ESTA canción en el AutoPlay */}
+                      <button 
+                        onClick={() => playPlaylistTrack(originalIndex)}
+                        className={`mr-3 p-1.5 rounded-full transition-colors ${isCurrentlyPlaying ? 'bg-green-500 text-black' : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'}`}
+                        title="Reproducir desde aquí (AutoPlay)"
+                      >
+                         {isCurrentlyPlaying ? <Pause size={12} fill="currentColor"/> : <Play size={12} fill="currentColor" className="ml-0.5" />}
+                      </button>
+                      
+                      <span className={`retro-text text-xs lg:text-base truncate font-bold ${isCurrentlyPlaying ? 'text-green-400' : 'text-gray-400'}`}>
+                        {originalIndex + 1}. {file.name.replace(/\.[^/.]+$/, "")}
+                      </span>
+                    </div>
+
+                    <div className="flex gap-2 w-full sm:w-auto px-1 items-center justify-end">
                       <button 
                         onClick={() => loadTrackToDeck(file, 'A')}
                         className="retro-btn flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-4 py-1.5 font-bold"
@@ -887,9 +1101,16 @@ const App = () => {
                       >
                         CARGAR B
                       </button>
+                      <button
+                        onClick={() => removeTrackFromPlaylist(file)}
+                        className="p-1.5 rounded bg-red-900/30 hover:bg-red-800 text-red-500 hover:text-white border border-red-800 transition-colors ml-1"
+                        title="Eliminar pista"
+                      >
+                         <Trash2 size={16} />
+                      </button>
                     </div>
                   </li>
-                ))}
+                )})}
               </ul>
             )}
           </div>
