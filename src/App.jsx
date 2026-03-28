@@ -4,7 +4,7 @@ import { Play, Pause, Square, Volume2, Disc3, Mic, Square as StopCircle, Upload,
 const App = () => {
   // Playlist States 
   const [files, setFiles] = useState([]);
-  const [searchQuery, setSearchQuery] = useState(''); // Estado para el buscador
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Deck States 
   const [deckA, setDeckA] = useState({ track: null, isPlaying: false, time: 0, duration: 0, pitch: 1 });
@@ -103,30 +103,26 @@ const App = () => {
     gainBRef.current.gain.value = Math.cos((1 - cf) * 0.5 * Math.PI);
   }, []);
 
-  // Función constructora del procesador de Efectos (FX)
   const createFXGraph = (ctx, sourceNode) => {
     const input = ctx.createGain();
     sourceNode.connect(input);
 
-    // 1. Camino Normal (Limpio)
     const normalGain = ctx.createGain();
     input.connect(normalGain);
 
-    // 2. Camino de Eco (Delay)
     const echoGain = ctx.createGain();
     echoGain.gain.value = 0;
     
     const delay = ctx.createDelay();
-    delay.delayTime.value = 0.33; // 330 milisegundos de retraso
+    delay.delayTime.value = 0.33;
     const feedback = ctx.createGain();
-    feedback.gain.value = 0.4; // Cantidad de repeticiones
+    feedback.gain.value = 0.4;
     
     input.connect(delay);
     delay.connect(feedback);
     feedback.connect(delay);
     delay.connect(echoGain);
 
-    // 3. Camino Radio/Teléfono (Filtro Bandpass + Distorsión)
     const radioGain = ctx.createGain();
     radioGain.gain.value = 0;
     
@@ -154,7 +150,6 @@ const App = () => {
     bandpass.connect(distortion);
     distortion.connect(radioGain);
 
-    // Salida Mixta
     const output = ctx.createGain();
     normalGain.connect(output);
     echoGain.connect(output);
@@ -164,18 +159,15 @@ const App = () => {
       output,
       setMode: (mode) => {
         const t = ctx.currentTime;
-        // Transición de 50ms
         if (mode === 'normal') {
             normalGain.gain.setTargetAtTime(1, t, 0.05);
             echoGain.gain.setTargetAtTime(0, t, 0.05);
             radioGain.gain.setTargetAtTime(0, t, 0.05);
         } else if (mode === 'echo') {
-            // Echo se mezcla con el sonido normal para crear el efecto
             normalGain.gain.setTargetAtTime(1, t, 0.05);
             echoGain.gain.setTargetAtTime(1, t, 0.05);
             radioGain.gain.setTargetAtTime(0, t, 0.05);
         } else if (mode === 'radio') {
-            // Radio oculta el sonido normal
             normalGain.gain.setTargetAtTime(0, t, 0.05);
             echoGain.gain.setTargetAtTime(0, t, 0.05);
             radioGain.gain.setTargetAtTime(1, t, 0.05);
@@ -352,7 +344,6 @@ const App = () => {
     if (deckId === 'B') setDeckB(prev => ({ ...prev, pitch: newPitch }));
   };
 
-  // Función para devolver o adelantar la pista con la barra de progreso
   const handleSeek = (deckId, newTime) => {
     const audio = deckId === 'A' ? audioARef.current : audioBRef.current;
     if (audio && !isNaN(audio.duration)) {
@@ -360,7 +351,6 @@ const App = () => {
     }
   };
 
-  // Actualiza el reloj de la UI sólo si no estamos arrastrando la barra
   useEffect(() => {
     const updateTimeA = () => {
       if (!isDraggingARef.current) {
@@ -472,20 +462,19 @@ const App = () => {
     return `${m}:${s}`;
   };
 
-  // Lógica para filtrar los archivos con el buscador
   const filteredFiles = files.filter(file => 
     file.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const Deck = ({ id, deckState }) => (
-    <div className="flex-1 winamp-panel p-3 rounded-lg flex flex-col relative h-full min-w-[280px]">
+    <div className="flex-1 winamp-panel p-3 rounded-lg flex flex-col relative h-full w-full lg:w-auto">
       <div className="absolute top-0 left-0 w-full text-center text-[10px] text-gray-400 bg-gray-900 border-b border-gray-600 rounded-t-lg py-1 font-bold tracking-widest">
         DECK {id} - PLAYER
       </div>
       
       <div className="mt-5 bg-black p-3 rounded border-2 border-gray-700 shadow-inner flex flex-col gap-2 relative">
         <div className="flex justify-between items-center mb-1">
-           <div className="retro-text text-sm truncate bg-black/50 px-1 font-bold flex-1 mr-2">
+           <div className="retro-text text-xs lg:text-sm truncate bg-black/50 px-1 font-bold flex-1 mr-2">
              {deckState.track ? `${id}: ${deckState.track.name.replace(/\.[^/.]+$/, "")}` : `--- PISTA VACÍA ---`}
            </div>
            <button 
@@ -497,20 +486,19 @@ const App = () => {
         </div>
         
         <div className="flex justify-between items-end mb-1">
-          <div className="text-4xl text-green-500 font-mono font-bold tracking-widest" style={{ textShadow: '0 0 5px #4ade80' }}>
+          <div className="text-3xl lg:text-4xl text-green-500 font-mono font-bold tracking-widest" style={{ textShadow: '0 0 5px #4ade80' }}>
             {formatTime(deckState.time)}
           </div>
           <div className="text-right">
-             <div className="text-green-600 font-mono text-xs mb-1">
+             <div className="text-green-600 font-mono text-[10px] lg:text-xs mb-1">
                {deckState.isPlaying ? '▶ PLAYING' : '■ STOPPED'}
              </div>
-             <div className="text-green-400 font-mono text-xs bg-green-900/30 px-1 border border-green-800 rounded">
+             <div className="text-green-400 font-mono text-[10px] lg:text-xs bg-green-900/30 px-1 border border-green-800 rounded">
                SPD: {(deckState.pitch * 100).toFixed(0)}%
              </div>
           </div>
         </div>
 
-        {/* Barra de progreso / Devolver pista ARRÁSTRABLE */}
         <div className="h-4 flex items-center mt-1">
           <input 
             type="range"
@@ -543,24 +531,27 @@ const App = () => {
 
       <div className="flex gap-4 mt-auto items-center justify-between pt-4">
         <div className="flex gap-2">
-          <button onClick={() => togglePlay(id)} className="retro-btn w-16 h-14 flex justify-center items-center">
+          {/* Tamaños exactos en PC (lg), un poco mas compactos en móvil */}
+          <button onClick={() => togglePlay(id)} className="retro-btn w-12 h-12 lg:w-16 lg:h-14 flex justify-center items-center">
             {deckState.isPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" />}
           </button>
-          <button onClick={() => stopDeck(id)} className="retro-btn w-16 h-14 flex justify-center items-center">
+          <button onClick={() => stopDeck(id)} className="retro-btn w-12 h-12 lg:w-16 lg:h-14 flex justify-center items-center">
             <Square size={20} fill="currentColor" />
           </button>
         </div>
         
         <div className="flex items-center gap-2 bg-gray-800 p-2 rounded border border-gray-600">
-           <span className="text-[9px] text-gray-400 font-bold rotate-180" style={{writingMode: 'vertical-rl'}}>PITCH</span>
-           <div className="h-28 flex items-center">
+           {/* Texto vertical original preservado en PC */}
+           <span className="text-[9px] text-gray-400 font-bold rotate-180 hidden lg:block" style={{writingMode: 'vertical-rl'}}>PITCH</span>
+           <span className="text-[9px] text-gray-400 font-bold lg:hidden">PTCH</span>
+           <div className="h-20 lg:h-28 flex items-center">
               <input 
                 type="range" 
                 min="0.7" max="1.3" step="0.01"
                 value={deckState.pitch}
                 onChange={(e) => changePitch(id, parseFloat(e.target.value))}
                 className="eq-slider h-full"
-                style={{ width: '112px', margin: '56px -44px' }}
+                style={{ width: '80px', margin: '40px -30px' }} 
               />
            </div>
            <button 
@@ -575,7 +566,7 @@ const App = () => {
   );
 
   return (
-    <div className="flex h-screen bg-[#111] text-gray-200 font-sans overflow-hidden select-none items-center justify-center p-4">
+    <div className="flex min-h-screen bg-[#111] text-gray-200 font-sans overflow-x-hidden select-none p-2 lg:p-4">
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes custom-spin {
           from { transform: rotate(0deg); }
@@ -636,7 +627,6 @@ const App = () => {
           border: 1px solid #fff; border-bottom: 2px solid #555; border-right: 2px solid #555;
           border-radius: 2px; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.5);
         }
-        /* Estilos mejorados para la barra de progreso */
         .progress-slider {
           -webkit-appearance: none; width: 100%; height: 16px; background: transparent; cursor: pointer; position: relative;
         }
@@ -654,59 +644,56 @@ const App = () => {
 
       <audio ref={audioARef} />
       <audio ref={audioBRef} />
-      {/* Input oculto para cargar archivos individualmente */}
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="audio/*,.mp3,.wav,.ogg,.m4a" className="hidden" />
-      {/* Input oculto para cargar listas de reproducción */}
       <input type="file" ref={playlistInputRef} onChange={handlePlaylistChange} multiple accept="audio/*,.mp3,.wav,.ogg,.m4a" className="hidden" />
 
       {uiMessage && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-green-500 text-black font-bold px-6 py-2 rounded-full z-50 shadow-[0_0_15px_#4ade80] border-2 border-black">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-green-500 text-black font-bold px-4 py-2 text-sm lg:px-6 lg:py-2 lg:text-base rounded-full z-50 shadow-[0_0_15px_#4ade80] border-2 border-black whitespace-nowrap">
           {uiMessage}
         </div>
       )}
 
-      {/* Main Content Area - Ahora centrado y sin scroll vertical innecesario */}
-      <div className="bg-[#1e1e24] p-6 rounded-xl border-4 border-gray-800 shadow-2xl flex flex-col gap-4 overflow-auto max-w-full max-h-full">
+      {/* Main Content Area - Responsivo manteniendo PC intacto */}
+      <div className="bg-[#1e1e24] w-full p-3 lg:p-6 rounded-xl border-2 lg:border-4 border-gray-800 shadow-2xl flex flex-col gap-4 mx-auto max-w-[1200px]">
         
-        {/* Header */}
-        <div className="flex justify-between items-center min-w-[900px]">
-          <div className="flex items-center gap-3">
-             <Disc3 className="text-green-500" size={28} />
-             <div className="text-gray-300 font-bold tracking-widest text-lg">
+        {/* Header Responsivo */}
+        <div className="flex flex-col md:flex-row justify-between items-center gap-3 w-full">
+          <div className="flex items-center gap-2 lg:gap-3">
+             <Disc3 className="text-green-500 shrink-0" size={24} />
+             <div className="text-gray-300 font-bold tracking-widest text-sm lg:text-lg text-center md:text-left">
                AUDIOFORUM / ESTACIÓN DJ + FX
              </div>
           </div>
           <button 
             onClick={toggleRecording}
-            className={`flex items-center gap-2 px-4 py-2 font-bold rounded shadow-lg transition-all border-b-2 active:border-b-0 active:translate-y-[2px]
+            className={`flex items-center justify-center gap-2 px-4 py-2 w-full md:w-auto font-bold rounded shadow-lg transition-all border-b-2 active:border-b-0 active:translate-y-[2px]
               ${isRecording ? 'bg-red-600 text-white border-red-800 animate-pulse' : 'bg-gray-300 text-black border-gray-500 hover:bg-white'}`}
           >
             {isRecording ? <StopCircle size={18} fill="currentColor" /> : <Mic size={18} />}
-            <span>{isRecording ? 'GRABANDO SESIÓN...' : 'GRABAR MEZCLA'}</span>
+            <span className="text-sm lg:text-base">{isRecording ? 'GRABANDO SESIÓN...' : 'GRABAR MEZCLA'}</span>
           </button>
         </div>
 
         {/* TOP ROW: Deck A | Center Mixer/Disc | Deck B */}
-        <div className="flex flex-row gap-4 h-[360px] min-w-[900px]">
+        {/* Usamos lg: para PC (horizontal) y flex-col por defecto para moviles (vertical) */}
+        <div className="flex flex-col lg:flex-row gap-4 h-auto lg:h-[360px] w-full">
           
           <Deck id="A" deckState={deckA} />
 
           {/* CENTRAL MIXER & DISC */}
-          <div className="winamp-panel p-3 rounded-lg flex flex-col relative w-[340px] shrink-0 items-center justify-between">
+          <div className="winamp-panel p-3 rounded-lg flex flex-col relative w-full lg:w-[340px] shrink-0 items-center justify-between min-h-[300px] lg:min-h-0">
             <div className="absolute top-0 left-0 w-full text-center text-[10px] text-gray-400 bg-gray-900 border-b border-gray-600 rounded-t-lg py-1 font-bold tracking-widest">
               MIX MASTER
             </div>
 
-            {/* Visualizer Mini-Strip */}
-            <div className="mt-5 w-full bg-black p-1 rounded border-2 border-gray-700 h-10 mb-2">
+            <div className="mt-5 w-full max-w-[280px] bg-black p-1 rounded border-2 border-gray-700 h-10 mb-2">
               <canvas ref={canvasRef} width="280" height="30" className="w-full h-full bg-[#050505] rounded opacity-90"></canvas>
             </div>
 
-            {/* Spinning Vinyl Disc with Scratch Feature */}
             <div 
               onMouseDown={handleScrubStart}
               onTouchStart={handleScrubStart}
-              className={`relative flex justify-center items-center h-36 w-36 shrink-0 aspect-square rounded-full border-[6px] border-[#15151c] bg-black shadow-[0_4px_15px_rgba(0,0,0,0.8)] my-2 cursor-grab select-none touch-none ${isScrubbing ? 'cursor-grabbing' : ''}`}
+              className={`relative flex justify-center items-center h-28 w-28 lg:h-36 lg:w-36 shrink-0 aspect-square rounded-full border-[6px] border-[#15151c] bg-black shadow-[0_4px_15px_rgba(0,0,0,0.8)] my-2 cursor-grab select-none touch-none ${isScrubbing ? 'cursor-grabbing' : ''}`}
               style={{ 
                 animation: (deckA.isPlaying || deckB.isPlaying) && !isScrubbing ? 'custom-spin 2s linear infinite' : 'none',
                 transform: isScrubbing ? 'scale(0.95)' : 'scale(1)',
@@ -720,18 +707,14 @@ const App = () => {
               <div className="absolute inset-7 rounded-full border border-gray-700"></div>
               <div className="absolute inset-9 rounded-full border border-gray-800"></div>
               
-              {/* Record Label */}
-              <div className="absolute h-12 w-12 rounded-full bg-gradient-to-br from-green-600 to-green-800 border-2 border-gray-400 flex items-center justify-center">
-                 <div className="text-[5px] font-bold text-black absolute top-1.5 tracking-widest">AUDIOFORUM</div>
+              <div className="absolute h-10 w-10 lg:h-12 lg:w-12 rounded-full bg-gradient-to-br from-green-600 to-green-800 border-2 border-gray-400 flex items-center justify-center">
+                 <div className="text-[4px] lg:text-[5px] font-bold text-black absolute top-1 lg:top-1.5 tracking-widest">AUDIOFORUM</div>
                  <div className="h-2 w-2 rounded-full bg-black border border-gray-300"></div>
               </div>
             </div>
 
-            {/* EQ & Crossfader Controls */}
             <div className="w-full flex flex-col gap-2 mt-auto">
-              
-              {/* 5-Band Master EQ */}
-              <div className="bg-gray-900 border-2 border-gray-700 rounded flex justify-between items-center px-4 py-1.5">
+              <div className="bg-gray-900 border-2 border-gray-700 rounded flex justify-between items-center px-2 lg:px-4 py-1.5">
                  {['60', '310', '1K', '6K', '14K'].map((label, index) => {
                    const mapIndex = index === 0 ? 0 : index === 1 ? 2 : index === 2 ? 4 : index === 3 ? 5 : 6;
                    return (
@@ -754,7 +737,6 @@ const App = () => {
                  )})}
               </div>
 
-              {/* Master Volume & Crossfader */}
               <div className="bg-[#252530] p-2.5 rounded border border-gray-600 flex flex-col gap-3">
                  <div className="flex items-center gap-3">
                     <Volume2 size={16} className="text-gray-400" />
@@ -784,64 +766,60 @@ const App = () => {
           <Deck id="B" deckState={deckB} />
         </div>
 
-        {/* NEW BOTTOM ROW: Efectos de Sonido (FX) */}
-        <div className="winamp-panel p-3 rounded-lg min-w-[900px] flex flex-col relative">
+        {/* BOTTOM ROW: Efectos de Sonido (FX) */}
+        <div className="winamp-panel p-3 rounded-lg w-full flex flex-col relative mt-2">
            <div className="absolute top-0 left-0 w-full text-center text-[10px] text-gray-400 bg-gray-900 border-b border-gray-600 rounded-t-lg py-1 font-bold tracking-widest">
               MÓDULO DE EFECTOS DE SONIDO (FX)
            </div>
 
-           <div className="mt-5 flex gap-4 w-full h-full">
+           <div className="mt-5 flex flex-col lg:flex-row gap-4 w-full h-full">
               {/* Controles FX DECK A */}
               <div className="flex-1 bg-black/40 border border-gray-700 rounded p-3 flex flex-col items-center">
                  <span className="text-green-500 font-bold text-xs tracking-widest mb-3">FX DECK A</span>
-                 <div className="flex gap-2 w-full justify-center">
+                 <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full justify-center">
                     <button 
                       onClick={() => setModeA('normal')}
-                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 ${modeA === 'normal' ? 'active-mode' : ''}`}
+                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 min-w-[80px] ${modeA === 'normal' ? 'active-mode' : ''}`}
                     >
                       NORMAL
                     </button>
                     <button 
                       onClick={() => setModeA('echo')}
-                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 ${modeA === 'echo' ? 'active-mode' : ''}`}
-                      title="Añade un efecto de eco y rebote"
+                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 min-w-[80px] ${modeA === 'echo' ? 'active-mode' : ''}`}
                     >
                       ECHO DELAY
                     </button>
                     <button 
                       onClick={() => setModeA('radio')}
-                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 ${modeA === 'radio' ? 'active-mode' : ''}`}
-                      title="Simula el sonido de una radio antigua"
+                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 min-w-[80px] ${modeA === 'radio' ? 'active-mode' : ''}`}
                     >
                       RADIO EQ
                     </button>
                  </div>
               </div>
 
-              {/* Separador Central */}
-              <div className="w-1 bg-gray-800 rounded"></div>
+              {/* Separador Central para PC */}
+              <div className="w-full lg:w-1 h-1 lg:h-auto bg-gray-800 rounded"></div>
 
               {/* Controles FX DECK B */}
               <div className="flex-1 bg-black/40 border border-gray-700 rounded p-3 flex flex-col items-center">
                  <span className="text-green-500 font-bold text-xs tracking-widest mb-3">FX DECK B</span>
-                 <div className="flex gap-2 w-full justify-center">
+                 <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full justify-center">
                     <button 
                       onClick={() => setModeB('normal')}
-                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 ${modeB === 'normal' ? 'active-mode' : ''}`}
+                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 min-w-[80px] ${modeB === 'normal' ? 'active-mode' : ''}`}
                     >
                       NORMAL
                     </button>
                     <button 
                       onClick={() => setModeB('echo')}
-                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 ${modeB === 'echo' ? 'active-mode' : ''}`}
-                      title="Añade un efecto de eco y rebote"
+                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 min-w-[80px] ${modeB === 'echo' ? 'active-mode' : ''}`}
                     >
                       ECHO DELAY
                     </button>
                     <button 
                       onClick={() => setModeB('radio')}
-                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 ${modeB === 'radio' ? 'active-mode' : ''}`}
-                      title="Simula el sonido de una radio antigua"
+                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 min-w-[80px] ${modeB === 'radio' ? 'active-mode' : ''}`}
                     >
                       RADIO EQ
                     </button>
@@ -851,40 +829,41 @@ const App = () => {
         </div>
 
         {/* LIBRERÍA DE PISTAS LOCAL (PLAYLIST) */}
-        <div className="winamp-panel p-2 rounded-lg flex-1 flex flex-col min-h-[250px] min-w-[900px]">
-          <div className="flex justify-between items-center bg-gray-800 p-2 mb-2 border border-gray-600 rounded gap-4">
-            <span className="text-xs text-gray-300 font-bold ml-2 tracking-widest flex items-center gap-2 whitespace-nowrap">
+        <div className="winamp-panel p-2 rounded-lg w-full flex flex-col min-h-[250px]">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-gray-800 p-2 mb-2 border border-gray-600 rounded gap-3">
+            <span className="text-xs text-gray-300 font-bold ml-1 lg:ml-2 tracking-widest flex items-center gap-2 whitespace-nowrap">
                <FolderOpen size={16}/> LIBRERÍA LOCAL
             </span>
             
-            {/* BUSCADOR DE PISTAS */}
-            <div className="flex-1 flex items-center bg-black border border-gray-600 rounded px-2">
-               <Search size={14} className="text-gray-400" />
-               <input 
-                 type="text" 
-                 placeholder="BUSCAR PISTA..." 
-                 value={searchQuery}
-                 onChange={(e) => setSearchQuery(e.target.value)}
-                 className="bg-transparent text-xs text-green-400 font-mono outline-none p-1.5 w-full placeholder-gray-600"
-               />
-            </div>
+            <div className="flex-1 flex flex-col sm:flex-row items-center gap-3 w-full">
+               <div className="flex-1 flex items-center bg-black border border-gray-600 rounded px-2 w-full">
+                  <Search size={14} className="text-gray-400" />
+                  <input 
+                    type="text" 
+                    placeholder="BUSCAR PISTA..." 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="bg-transparent text-xs text-green-400 font-mono outline-none p-1.5 w-full placeholder-gray-600"
+                  />
+               </div>
 
-            <button 
-              onClick={() => playlistInputRef.current?.click()}
-              className="retro-btn text-xs px-4 py-1.5 font-bold whitespace-nowrap"
-            >
-              + AÑADIR ARCHIVOS
-            </button>
+               <button 
+                 onClick={() => playlistInputRef.current?.click()}
+                 className="retro-btn text-xs px-4 py-2 lg:py-1.5 font-bold w-full sm:w-auto whitespace-nowrap"
+               >
+                 + AÑADIR ARCHIVOS
+               </button>
+            </div>
           </div>
           
           <div className="flex-1 bg-black border-2 border-gray-700 rounded overflow-y-auto p-2 custom-scrollbar">
             {files.length === 0 ? (
-              <div className="retro-text text-sm opacity-50 text-center mt-6 flex flex-col items-center gap-2">
+              <div className="retro-text text-sm opacity-50 text-center mt-6 flex flex-col items-center gap-2 p-4">
                 <Disc3 size={32} />
                 No hay música cargada en la lista.<br/>Haz clic en '+ AÑADIR ARCHIVOS' para agregar tu música.
               </div>
             ) : filteredFiles.length === 0 ? (
-              <div className="retro-text text-sm opacity-50 text-center mt-6 flex flex-col items-center gap-2">
+              <div className="retro-text text-sm opacity-50 text-center mt-6 flex flex-col items-center gap-2 p-4">
                 <Search size={32} />
                 No se encontraron pistas que coincidan con "{searchQuery}".
               </div>
@@ -892,20 +871,19 @@ const App = () => {
               <ul className="space-y-1">
                 {filteredFiles.map((file, index) => (
                   <li key={index} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-2 hover:bg-green-900/30 border-b border-gray-800 group gap-2 sm:gap-0">
-                    <span className="retro-text text-base truncate flex-1 font-bold pl-1">
-                      {/* Aquí mostramos el nombre real basándonos en si hay un filtro aplicado o no, pero mantenemos el índice simple */}
+                    <span className="retro-text text-xs lg:text-base truncate w-full sm:w-auto flex-1 font-bold pl-1">
                       {files.indexOf(file) + 1}. {file.name.replace(/\.[^/.]+$/, "")}
                     </span>
                     <div className="flex gap-2 w-full sm:w-auto px-1">
                       <button 
                         onClick={() => loadTrackToDeck(file, 'A')}
-                        className="retro-btn flex-1 sm:flex-none text-xs px-4 py-1.5 font-bold"
+                        className="retro-btn flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-4 py-1.5 font-bold"
                       >
                         CARGAR A
                       </button>
                       <button 
                         onClick={() => loadTrackToDeck(file, 'B')}
-                        className="retro-btn flex-1 sm:flex-none text-xs px-4 py-1.5 font-bold"
+                        className="retro-btn flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-4 py-1.5 font-bold"
                       >
                         CARGAR B
                       </button>
