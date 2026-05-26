@@ -1,3 +1,81 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#050505] text-gray-200 overflow-x-hidden;
+    /* Cyberpunk Grid Background */
+    background-color: #050505;
+    background-image: 
+      linear-gradient(rgba(0, 240, 255, 0.1) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 240, 255, 0.1) 1px, transparent 1px),
+      linear-gradient(rgba(255, 45, 123, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 45, 123, 0.05) 1px, transparent 1px);
+    background-size: 100px 100px, 100px 100px, 20px 20px, 20px 20px;
+    background-position: -1px -1px, -1px -1px, -1px -1px, -1px -1px;
+    box-shadow: inset 0 0 100px rgba(0,0,0,0.9);
+  }
+
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #050505;
+    border-left: 1px solid rgba(0, 240, 255, 0.1);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #ff2d7b;
+    border-radius: 0;
+    border: 1px solid #000;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #00f0ff;
+    box-shadow: 0 0 10px #00f0ff;
+  }
+}
+
+.scanlines {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%,
+    rgba(0, 0, 0, 0.25) 50%
+  ),
+  linear-gradient(
+    90deg,
+    rgba(255, 0, 0, 0.06),
+    rgba(0, 255, 0, 0.02),
+    rgba(0, 0, 255, 0.06)
+  );
+  background-size: 100% 4px, 3px 100%;
+  pointer-events: none;
+  z-index: 1000;
+  opacity: 0.6;
+}
+
+.glitch-text {
+  position: relative;
+}
+
+.glitch-text:hover {
+  animation: glitch 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) both infinite;
+  text-shadow: -2px 0 #ff2d7b, 2px 0 #00f0ff;
+}
+
+.cyber-border {
+  border: 1px solid rgba(0, 240, 255, 0.5);
+  box-shadow: 0 0 15px rgba(0, 240, 255, 0.15), inset 0 0 15px rgba(0, 240, 255, 0.15);
+}
+
+.neo-magenta-glow {
+  box-shadow: 0 0 20px #ff2d7b, inset 0 0 10px #ff2d7b;
+}
+
+.neo-cyan-glow {
+  box-shadow: 0 0 20px #00f0ff, inset 0 0 10px #00f0ff;
+}

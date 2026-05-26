@@ -79,6 +79,10 @@ const App = () => {
   const [uiMessage, setUiMessage] = useState("");
   const [targetDeck, setTargetDeck] = useState(null);
 
+  // Lyrics States
+  const [lyrics, setLyrics] = useState('');
+  const [showLyrics, setShowLyrics] = useState(false);
+
   // Scrubbing (Scratch & Drag) States
   const [isScrubbing, setIsScrubbing] = useState(false);
   const lastMouseXRef = useRef(0);
@@ -132,6 +136,26 @@ const App = () => {
     fetchSavedFiles();
   }, []);
 
+  // Update lyrics when track changes
+  useEffect(() => {
+    const activeTrack = deckA.track?.name || deckB.track?.name || "";
+    if (activeTrack) {
+      const savedLyrics = localStorage.getItem(`lyrics_${activeTrack}`);
+      setLyrics(savedLyrics || "");
+    } else {
+      setLyrics("");
+    }
+  }, [deckA.track, deckB.track]);
+
+  const handleLyricsChange = (e) => {
+    const val = e.target.value;
+    setLyrics(val);
+    const activeTrack = deckA.track?.name || deckB.track?.name || "";
+    if (activeTrack) {
+      localStorage.setItem(`lyrics_${activeTrack}`, val);
+    }
+  };
+
   const drawVisualizer = useCallback(function draw() {
     if (!analyserRef.current || !canvasRef.current) {
       animationRef.current = requestAnimationFrame(draw);
@@ -148,7 +172,7 @@ const App = () => {
     
     analyserRef.current.getByteFrequencyData(dataArray);
     
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = '#0a0a12';
     ctx.fillRect(0, 0, width, height);
     
     const barWidth = (width / bufferLength) * 2.5;
@@ -158,12 +182,19 @@ const App = () => {
     for (let i = 0; i < bufferLength; i++) {
       barHeight = dataArray[i] / 2;
       
-      const r = barHeight + (25 * (i/bufferLength));
-      const g = 250 * (i/bufferLength);
-      const b = 50;
+      // Cyberpunk gradient: Cyan to Magenta
+      const gradient = ctx.createLinearGradient(0, height, 0, height - barHeight);
+      gradient.addColorStop(0, '#00f0ff');
+      gradient.addColorStop(1, '#ff2d7b');
       
-      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillStyle = gradient;
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = '#00f0ff';
       ctx.fillRect(x, height - barHeight, barWidth, barHeight);
+      
+      // Glitchy reflection
+      ctx.fillStyle = 'rgba(255, 45, 123, 0.2)';
+      ctx.fillRect(x, height - barHeight, barWidth, 1);
       
       x += barWidth + 1;
     }
@@ -640,35 +671,64 @@ const App = () => {
     file.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const LyricsPanel = () => (
+    <div className="winamp-panel p-4 rounded-lg flex flex-col h-full border-neon-cyan/50 shadow-[0_0_20px_rgba(0,240,255,0.15)] bg-black/80">
+      <div className="flex justify-between items-center mb-3 border-b border-neon-cyan/30 pb-2">
+        <h3 className="font-cyber text-neon-cyan text-sm tracking-widest flex items-center gap-2 glitch-text">
+          <Search size={14} className="text-neon-cyan" /> DATAPAD_LYRICS // v2.0
+        </h3>
+        <button 
+          onClick={() => { setLyrics(''); localStorage.removeItem(`lyrics_${deckA.track?.name || deckB.track?.name || ""}`); }}
+          className="text-[9px] text-neon-magenta hover:text-black hover:bg-neon-magenta transition-all border border-neon-magenta/50 px-2 py-0.5 rounded shadow-[0_0_5px_#ff2d7b]"
+        >
+          FORCE_PURGE
+        </button>
+      </div>
+      <textarea
+        value={lyrics}
+        onChange={handleLyricsChange}
+        placeholder={deckA.track || deckB.track ? "PASTE OR TYPE LYRICS HERE..." : "LOAD A TRACK TO ADD LYRICS..."}
+        className="w-full flex-1 min-h-[200px] bg-black/60 text-neon-cyan font-mono-retro text-sm p-4 rounded border border-neon-cyan/50 focus:border-neon-cyan outline-none resize-none custom-scrollbar shadow-[inset_0_0_15px_rgba(0,240,255,0.2)]"
+      />
+      <div className="mt-3 text-[10px] text-neon-cyan/60 font-mono-retro flex justify-between">
+        <span>* AUTO-SYNCING TO LOCAL_STORAGE</span>
+        <span className="animate-pulse text-neon-yellow">STATUS: OK</span>
+      </div>
+    </div>
+  );
+
   const Deck = ({ id, deckState }) => (
-    <div className="flex-1 winamp-panel p-3 rounded-lg flex flex-col relative h-full w-full lg:w-auto">
-      <div className="absolute top-0 left-0 w-full text-center text-[10px] text-gray-400 bg-gray-900 border-b border-gray-600 rounded-t-lg py-1 font-bold tracking-widest">
-        DECK {id} - PLAYER
+    <div className="flex-1 winamp-panel p-3 rounded-lg flex flex-col relative h-full w-full lg:w-auto overflow-hidden group">
+      <div className="absolute top-0 left-0 w-full text-center text-[10px] text-neon-cyan bg-black/80 border-b border-neon-cyan/30 py-1 font-cyber tracking-widest z-10">
+        DECK_{id} // STATUS: {deckState.isPlaying ? 'ACTIVE' : 'IDLE'}
       </div>
       
-      <div className="mt-5 bg-black p-3 rounded border-2 border-gray-700 shadow-inner flex flex-col gap-2 relative">
+      <div className="mt-7 bg-cyber-dark/80 p-3 rounded border border-neon-cyan/30 shadow-[0_0_15px_rgba(0,240,255,0.05)] flex flex-col gap-2 relative overflow-hidden">
+        {/* Decorative corner */}
+        <div className="absolute top-0 right-0 w-8 h-8 bg-neon-cyan/10 transform rotate-45 translate-x-4 -translate-y-4 border-b border-neon-cyan/30"></div>
+        
         <div className="flex justify-between items-center mb-1">
-           <div className="retro-text text-xs lg:text-sm truncate bg-black/50 px-1 font-bold flex-1 mr-2">
-             {deckState.track ? `${id}: ${deckState.track.name.replace(/\.[^/.]+$/, "")}` : `--- PISTA VACÍA ---`}
+           <div className="font-mono-retro text-xs lg:text-sm truncate text-neon-cyan shadow-neon-cyan/50 px-1 font-bold flex-1 mr-2 glitch-text">
+             {deckState.track ? `${id}: ${deckState.track.name.replace(/\.[^/.]+$/, "")}` : `--- NO_DATA_STREAM ---`}
            </div>
            <button 
              onClick={() => triggerLoad(id)} 
-             className="retro-btn text-[9px] px-2 py-1 font-bold flex items-center gap-1 shrink-0"
+             className="retro-btn text-[9px] px-2 py-1 font-cyber font-bold flex items-center gap-1 shrink-0 border-neon-magenta/50 text-neon-magenta bg-transparent"
            >
-             <Upload size={10} /> CARGAR
+             <Upload size={10} /> INJECT_FILE
            </button>
         </div>
         
         <div className="flex justify-between items-end mb-1">
-          <div className="text-3xl lg:text-4xl text-green-500 font-mono font-bold tracking-widest" style={{ textShadow: '0 0 5px #4ade80' }}>
+          <div className="text-3xl lg:text-4xl text-neon-magenta font-mono-retro font-bold tracking-widest" style={{ textShadow: '0 0 10px #ff2d7b' }}>
             {formatTime(deckState.time)}
           </div>
           <div className="text-right">
-             <div className="text-green-600 font-mono text-[10px] lg:text-xs mb-1">
-               {deckState.isPlaying ? '▶ PLAYING' : '■ STOPPED'}
+             <div className={`font-mono-retro text-[10px] lg:text-xs mb-1 ${deckState.isPlaying ? 'text-neon-cyan animate-pulse' : 'text-gray-600'}`}>
+               {deckState.isPlaying ? '>> EXECUTING' : '|| HALTED'}
              </div>
-             <div className="text-green-400 font-mono text-[10px] lg:text-xs bg-green-900/30 px-1 border border-green-800 rounded">
-               SPD: {(deckState.pitch * 100).toFixed(0)}%
+             <div className="text-neon-yellow font-mono-retro text-[10px] lg:text-xs bg-neon-yellow/5 px-1 border border-neon-yellow/20 rounded">
+               FRQ: {(deckState.pitch * 100).toFixed(0)}%
              </div>
           </div>
         </div>
@@ -698,24 +758,26 @@ const App = () => {
             }}
             className="progress-slider w-full"
             disabled={!deckState.track}
-            title="Arrastra para devolver o adelantar la pista"
           />
         </div>
       </div>
 
       <div className="flex gap-4 mt-auto items-center justify-between pt-4">
         <div className="flex gap-2">
-          <button onClick={() => togglePlay(id)} className="retro-btn w-12 h-12 lg:w-16 lg:h-14 flex justify-center items-center">
+          <button 
+            onClick={() => togglePlay(id)} 
+            className={`retro-btn w-12 h-12 lg:w-16 lg:h-14 flex justify-center items-center ${deckState.isPlaying ? 'bg-neon-cyan/20 text-neon-cyan border-neon-cyan shadow-[0_0_15px_#00f0ff]' : 'text-neon-cyan border-neon-cyan/30'}`}
+          >
             {deckState.isPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" />}
           </button>
-          <button onClick={() => stopDeck(id)} className="retro-btn w-12 h-12 lg:w-16 lg:h-14 flex justify-center items-center">
+          <button onClick={() => stopDeck(id)} className="retro-btn w-12 h-12 lg:w-16 lg:h-14 flex justify-center items-center text-neon-magenta border-neon-magenta/30 hover:bg-neon-magenta/10">
             <Square size={20} fill="currentColor" />
           </button>
         </div>
         
-        <div className="flex items-center gap-2 bg-gray-800 p-2 rounded border border-gray-600">
-           <span className="text-[9px] text-gray-400 font-bold rotate-180 hidden lg:block" style={{writingMode: 'vertical-rl'}}>PITCH</span>
-           <span className="text-[9px] text-gray-400 font-bold lg:hidden">PTCH</span>
+        <div className="flex items-center gap-2 bg-black/40 p-2 rounded border border-white/5">
+           <span className="text-[9px] text-neon-cyan font-cyber font-bold rotate-180 hidden lg:block" style={{writingMode: 'vertical-rl'}}>SYNC_RATE</span>
+           <span className="text-[9px] text-neon-cyan font-cyber font-bold lg:hidden">SYNC</span>
            <div className="h-20 lg:h-28 flex items-center">
               <input 
                 type="range" 
@@ -728,9 +790,9 @@ const App = () => {
            </div>
            <button 
              onClick={() => changePitch(id, 1)} 
-             className="text-[9px] bg-gray-700 hover:bg-gray-600 px-1 py-2 rounded border border-gray-500 font-bold shadow-sm active:translate-y-[1px]"
+             className="text-[9px] bg-cyber-dark text-neon-yellow hover:bg-neon-yellow hover:text-black px-1 py-4 rounded border border-neon-yellow/30 font-cyber font-bold transition-all"
            >
-             RST
+             RESET
            </button>
         </div>
       </div>
@@ -748,69 +810,99 @@ const App = () => {
           touch-action: manipulation;
         }
         .winamp-panel {
-          background: linear-gradient(to bottom, #3b3b4f, #2a2a38);
-          border-top: 2px solid #5a5a75;
-          border-left: 2px solid #5a5a75;
-          border-bottom: 2px solid #15151c;
-          border-right: 2px solid #15151c;
-          box-shadow: 4px 4px 15px rgba(0,0,0,0.8);
+          background: rgba(15, 15, 25, 0.85);
+          backdrop-filter: blur(10px);
+          border: 1px solid rgba(0, 240, 255, 0.2);
+          box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8), inset 0 0 32px 0 rgba(0, 240, 255, 0.05);
+          position: relative;
+          overflow: hidden;
+        }
+        .winamp-panel::before {
+          content: "";
+          position: absolute;
+          top: 0;
+          left: -100%;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+          transition: 0.5s;
+          pointer-events: none;
+        }
+        .winamp-panel:hover::before {
+          left: 100%;
         }
         .retro-text {
-          font-family: 'Courier New', Courier, monospace;
-          color: #4ade80;
+          font-family: 'Share Tech Mono', monospace;
+          color: #00f0ff;
+          text-shadow: 0 0 5px rgba(0, 240, 255, 0.5);
         }
         .retro-btn {
-          background-color: #d1d5db;
-          color: #000;
+          background: transparent;
+          color: #00f0ff;
+          border: 1px solid rgba(0, 240, 255, 0.3);
           border-radius: 4px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-          border-bottom: 3px solid #6b7280;
-          border-right: 1px solid #6b7280;
-          transition: all 0.05s ease;
+          transition: all 0.2s ease;
           cursor: pointer;
+          font-family: 'Orbitron', sans-serif;
+          position: relative;
+          overflow: hidden;
+        }
+        .retro-btn::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: rgba(0, 240, 255, 0.1);
+          opacity: 0;
+          transition: 0.2s;
+        }
+        .retro-btn:hover {
+          border-color: #00f0ff;
+          box-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+          transform: translateY(-1px);
+        }
+        .retro-btn:hover::after {
+          opacity: 1;
         }
         .retro-btn:active {
-          border-bottom-width: 0px;
-          transform: translateY(3px);
-          background-color: #f3f4f6;
+          transform: translateY(1px);
         }
         .retro-btn.active-mode {
-          background-color: #4ade80;
-          border-bottom-width: 0px;
-          transform: translateY(3px);
-          box-shadow: 0 0 10px rgba(74, 222, 128, 0.5);
+          background-color: rgba(255, 45, 123, 0.2);
+          border-color: #ff2d7b;
+          color: #ff2d7b;
+          box-shadow: 0 0 15px rgba(255, 45, 123, 0.5);
         }
         .eq-slider {
           -webkit-appearance: none; background: transparent; height: 8px; transform: rotate(-90deg); transform-origin: center;
         }
         .eq-slider::-webkit-slider-runnable-track {
-          width: 100%; height: 6px; background: #111; border: 1px solid #444; border-radius: 2px;
+          width: 100%; height: 4px; background: rgba(0, 0, 0, 0.5); border: 1px solid rgba(0, 240, 255, 0.2); border-radius: 2px;
         }
         .eq-slider::-webkit-slider-thumb {
-          -webkit-appearance: none; height: 26px; width: 16px; border-radius: 2px;
-          background: #ccc; border: 1px solid #fff; border-bottom: 2px solid #555; border-right: 2px solid #555;
-          margin-top: -11px; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+          -webkit-appearance: none; height: 20px; width: 12px; border-radius: 2px;
+          background: #ff2d7b; border: 1px solid #fff;
+          margin-top: -9px; cursor: pointer; box-shadow: 0 0 10px #ff2d7b;
         }
         .normal-slider {
-          -webkit-appearance: none; width: 100%; height: 8px; background: #111; border: 1px solid #444; border-radius: 3px;
+          -webkit-appearance: none; width: 100%; height: 6px; background: rgba(0, 0, 0, 0.5); border: 1px solid rgba(0, 240, 255, 0.2); border-radius: 3px;
         }
         .normal-slider::-webkit-slider-thumb {
-          -webkit-appearance: none; height: 30px; width: 16px; background: #ccc;
-          border: 1px solid #fff; border-bottom: 2px solid #555; border-right: 2px solid #555;
-          border-radius: 2px; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+          -webkit-appearance: none; height: 20px; width: 12px; background: #00f0ff;
+          border: 1px solid #fff;
+          border-radius: 2px; cursor: pointer; box-shadow: 0 0 10px #00f0ff;
         }
         .progress-slider {
           -webkit-appearance: none; width: 100%; height: 16px; background: transparent; cursor: pointer; position: relative;
         }
         .progress-slider::-webkit-slider-runnable-track {
-          width: 100%; height: 6px; background: #111; border: 1px solid #444; border-radius: 3px;
+          width: 100%; height: 4px; background: rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 3px;
         }
         .progress-slider::-webkit-slider-thumb {
-          -webkit-appearance: none; height: 18px; width: 10px; background: #4ade80; border-radius: 2px;
-          box-shadow: 0 0 8px rgba(74, 222, 128, 0.8); margin-top: -7px; border: 1px solid #fff;
+          -webkit-appearance: none; height: 14px; width: 8px; background: #ff2d7b; border-radius: 1px;
+          box-shadow: 0 0 10px #ff2d7b; margin-top: -6px; border: 1px solid #fff;
         }
         .progress-slider:disabled {
-          opacity: 0.3; cursor: not-allowed;
+          opacity: 0.1; cursor: not-allowed;
         }
       `}} />
 
@@ -824,29 +916,33 @@ const App = () => {
       <input type="file" ref={playlistInputRef} onChange={handlePlaylistChange} multiple accept="audio/*,.mp3,.wav,.ogg,.m4a" className="hidden" />
 
       {uiMessage && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-green-500 text-black font-bold px-4 py-2 text-sm lg:px-6 lg:py-2 lg:text-base rounded-full z-50 shadow-[0_0_15px_#4ade80] border-2 border-black whitespace-nowrap">
-          {uiMessage}
+        <div className="fixed top-8 left-1/2 -translate-x-1/2 bg-black text-neon-cyan font-cyber px-6 py-3 text-sm lg:text-base rounded-none z-[2000] shadow-[0_0_20px_#00f0ff] border border-neon-cyan whitespace-nowrap animate-glitch">
+          <span className="mr-2">SYSTEM_MSG ::</span> {uiMessage}
         </div>
       )}
 
+      <div className="scanlines"></div>
+
       {/* Main Content Area */}
-      <div className="bg-[#1e1e24] w-full p-3 lg:p-6 rounded-xl border-2 lg:border-4 border-gray-800 shadow-2xl flex flex-col gap-4 mx-auto max-w-[1200px]">
+      <div className="bg-cyber-dark/40 backdrop-blur-md w-full p-3 lg:p-6 rounded-none border-x border-neon-cyan/20 shadow-2xl flex flex-col lg:flex-row gap-6 mx-auto max-w-[1500px] relative z-10 my-4 lg:my-8 border-t border-b border-t-neon-magenta/30 border-b-neon-magenta/30">
         
+        {/* LEFT COLUMN: Main Controls */}
+        <div className="flex-1 flex flex-col gap-4 w-full">
         {/* Header Responsivo */}
-        <div className="flex flex-col md:flex-row justify-between items-center gap-3 w-full">
+        <div className="flex flex-col md:flex-row justify-between items-center gap-3 w-full border-b border-white/5 pb-4">
           <div className="flex items-center gap-2 lg:gap-3">
-             <Disc3 className="text-green-500 shrink-0" size={24} />
-             <div className="text-gray-300 font-bold tracking-widest text-sm lg:text-lg text-center md:text-left">
-               AUDIOFORUM / ESTACIÓN DJ + FX
+             <Disc3 className="text-neon-cyan shrink-0 animate-spin-slow" size={28} />
+             <div className="text-neon-cyan font-cyber font-bold tracking-[0.2em] text-sm lg:text-xl text-center md:text-left glitch-text">
+               AUDIOFORUM // CYBER_STATION_v2
              </div>
           </div>
           <button 
             onClick={toggleRecording}
-            className={`flex items-center justify-center gap-2 px-4 py-2 w-full md:w-auto font-bold rounded shadow-lg transition-all border-b-2 active:border-b-0 active:translate-y-[2px]
-              ${isRecording ? 'bg-red-600 text-white border-red-800 animate-pulse' : 'bg-gray-300 text-black border-gray-500 hover:bg-white'}`}
+            className={`flex items-center justify-center gap-2 px-6 py-2 w-full md:w-auto font-cyber text-xs tracking-widest transition-all border outline-none
+              ${isRecording ? 'bg-neon-magenta text-white border-white animate-flicker shadow-[0_0_15px_#ff2d7b]' : 'bg-transparent text-neon-yellow border-neon-yellow/50 hover:bg-neon-yellow/10 hover:border-neon-yellow'}`}
           >
             {isRecording ? <StopCircle size={18} fill="currentColor" /> : <Mic size={18} />}
-            <span className="text-sm lg:text-base">{isRecording ? 'GRABANDO SESIÓN...' : 'GRABAR MEZCLA'}</span>
+            <span className="text-sm lg:text-base">{isRecording ? 'STREAMING_REC...' : 'START_CAPTURE'}</span>
           </button>
         </div>
 
@@ -855,40 +951,39 @@ const App = () => {
           <Deck id="A" deckState={deckA} />
 
           {/* CENTRAL MIXER & DISC */}
-          <div className="winamp-panel p-3 rounded-lg flex flex-col relative w-full lg:w-[340px] shrink-0 items-center justify-between min-h-[300px] lg:min-h-0">
-            <div className="absolute top-0 left-0 w-full text-center text-[10px] text-gray-400 bg-gray-900 border-b border-gray-600 rounded-t-lg py-1 font-bold tracking-widest">
-              MIX MASTER
+          <div className="winamp-panel p-3 rounded-lg flex flex-col relative w-full lg:w-[340px] shrink-0 items-center justify-between min-h-[300px] lg:min-h-0 border-neon-magenta/20">
+            <div className="absolute top-0 left-0 w-full text-center text-[10px] text-neon-magenta bg-black/80 border-b border-neon-magenta/30 py-1 font-cyber tracking-widest z-10">
+              CORE_PROCESSOR // MASTER
             </div>
 
-            <div className="mt-5 w-full max-w-[280px] bg-black p-1 rounded border-2 border-gray-700 h-10 mb-2">
-              <canvas ref={canvasRef} width="280" height="30" className="w-full h-full bg-[#050505] rounded opacity-90"></canvas>
+            <div className="mt-7 w-full max-w-[280px] bg-cyber-dark/80 p-1 rounded border border-neon-cyan/20 h-10 mb-2 overflow-hidden">
+              <canvas ref={canvasRef} width="280" height="30" className="w-full h-full bg-black/40 rounded opacity-90"></canvas>
             </div>
 
             <div 
               onMouseDown={handleScrubStart}
               onTouchStart={handleScrubStart}
-              className={`relative flex justify-center items-center h-28 w-28 lg:h-36 lg:w-36 shrink-0 aspect-square rounded-full border-[6px] border-[#15151c] bg-black shadow-[0_4px_15px_rgba(0,0,0,0.8)] my-2 cursor-grab select-none touch-none ${isScrubbing ? 'cursor-grabbing' : ''}`}
+              className={`relative flex justify-center items-center h-28 w-28 lg:h-36 lg:w-36 shrink-0 aspect-square rounded-full border-[2px] border-neon-cyan/30 bg-black shadow-[0_0_20px_rgba(0,240,255,0.1)] my-2 cursor-grab select-none touch-none overflow-hidden ${isScrubbing ? 'cursor-grabbing border-neon-cyan shadow-[0_0_30px_#00f0ff]' : ''}`}
               style={{ 
-                animation: (deckA.isPlaying || deckB.isPlaying || playlistPlayer.isPlaying) && !isScrubbing ? 'custom-spin 2s linear infinite' : 'none',
-                transform: isScrubbing ? 'scale(0.95)' : 'scale(1)',
-                transition: 'transform 0.1s ease'
+                animation: (deckA.isPlaying || deckB.isPlaying || playlistPlayer.isPlaying) && !isScrubbing ? 'custom-spin 3s linear infinite' : 'none',
+                transform: isScrubbing ? 'scale(0.98)' : 'scale(1)',
+                transition: 'all 0.2s ease'
               }}
-              title="Arrastra a los lados para hacer Scratch"
             >
-              <div className="absolute inset-1 rounded-full border border-gray-800"></div>
-              <div className="absolute inset-3 rounded-full border border-gray-700"></div>
-              <div className="absolute inset-5 rounded-full border border-gray-800"></div>
-              <div className="absolute inset-7 rounded-full border border-gray-700"></div>
-              <div className="absolute inset-9 rounded-full border border-gray-800"></div>
+              <div className="absolute inset-0 bg-[radial-gradient(circle,rgba(0,240,255,0.1)_0%,transparent_70%)]"></div>
+              <div className="absolute inset-1 rounded-full border border-white/5"></div>
+              <div className="absolute inset-4 rounded-full border border-neon-cyan/10"></div>
+              <div className="absolute inset-8 rounded-full border border-white/5"></div>
+              <div className="absolute inset-12 rounded-full border border-neon-cyan/10"></div>
               
-              <div className="absolute h-10 w-10 lg:h-12 lg:w-12 rounded-full bg-gradient-to-br from-green-600 to-green-800 border-2 border-gray-400 flex items-center justify-center">
-                 <div className="text-[4px] lg:text-[5px] font-bold text-black absolute top-1 lg:top-1.5 tracking-widest">AUDIOFORUM</div>
-                 <div className="h-2 w-2 rounded-full bg-black border border-gray-300"></div>
+              <div className="absolute h-10 w-10 lg:h-12 lg:w-12 rounded-full bg-black border border-neon-cyan flex items-center justify-center shadow-[0_0_15px_#00f0ff] z-20">
+                 <div className="text-[5px] font-cyber text-neon-cyan absolute top-1.5 tracking-widest animate-pulse">SYSTEM_C</div>
+                 <div className="h-3 w-3 rounded-full bg-neon-cyan shadow-[0_0_10px_#00f0ff]"></div>
               </div>
             </div>
 
             <div className="w-full flex flex-col gap-2 mt-auto">
-              <div className="bg-gray-900 border-2 border-gray-700 rounded flex justify-between items-center px-2 lg:px-4 py-1.5">
+              <div className="bg-black/60 border border-neon-magenta/20 rounded-none flex justify-between items-center px-2 lg:px-4 py-3">
                  {['60', '310', '1K', '6K', '14K'].map((label, index) => {
                    const mapIndex = index === 0 ? 0 : index === 1 ? 2 : index === 2 ? 4 : index === 3 ? 5 : 6;
                    return (
@@ -906,14 +1001,14 @@ const App = () => {
                          style={{ width: '60px', margin: '30px -25px' }}
                        />
                      </div>
-                     <span className="text-[8px] text-gray-400 mt-2 font-bold">{label}</span>
+                     <span className="text-[8px] text-neon-magenta mt-3 font-cyber font-bold opacity-70">{label}</span>
                    </div>
                  )})}
               </div>
 
-              <div className="bg-[#252530] p-2.5 rounded border border-gray-600 flex flex-col gap-3">
+              <div className="bg-black/40 p-3 rounded-none border border-white/5 flex flex-col gap-4">
                  <div className="flex items-center gap-3">
-                    <Volume2 size={16} className="text-gray-400" />
+                    <Volume2 size={16} className="text-neon-cyan" />
                     <input 
                       type="range" min="0" max="1" step="0.01" 
                       value={masterVolume} onChange={(e) => setMasterVolume(parseFloat(e.target.value))}
@@ -921,10 +1016,10 @@ const App = () => {
                     />
                  </div>
                  <div className="flex flex-col">
-                   <div className="flex justify-between text-[10px] font-bold text-gray-400 mb-1">
-                     <span className="text-green-500">DECK A</span>
-                     <span>CROSSFADER</span>
-                     <span className="text-green-500">DECK B</span>
+                   <div className="flex justify-between text-[10px] font-cyber font-bold text-neon-cyan mb-1 tracking-tighter opacity-70">
+                     <span>DECK_A</span>
+                     <span>CROSSFADER_V1</span>
+                     <span>DECK_B</span>
                    </div>
                    <input 
                       type="range" min="0" max="100" step="1" 
@@ -941,33 +1036,33 @@ const App = () => {
         </div>
 
         {/* BOTTOM ROW: Efectos de Sonido (FX) */}
-        <div className="winamp-panel p-3 rounded-lg w-full flex flex-col relative mt-2">
-           <div className="absolute top-0 left-0 w-full text-center text-[10px] text-gray-400 bg-gray-900 border-b border-gray-600 rounded-t-lg py-1 font-bold tracking-widest">
-              MÓDULO DE EFECTOS DE SONIDO (FX)
+        <div className="winamp-panel p-3 rounded-lg w-full flex flex-col relative mt-2 border-neon-cyan/20">
+           <div className="absolute top-0 left-0 w-full text-center text-[10px] text-neon-cyan bg-black/80 border-b border-neon-cyan/30 py-1 font-cyber tracking-widest z-10 flex justify-center items-center gap-4">
+              <span className="animate-pulse">●</span> ANALOG_FX_MODULE // OVERLOAD_ALLOWED <span className="animate-pulse">●</span>
            </div>
 
-           <div className="mt-5 flex flex-col lg:flex-row gap-4 w-full h-full">
+           <div className="mt-8 flex flex-col lg:flex-row gap-4 w-full h-full">
               {/* Controles FX DECK A */}
-              <div className="flex-1 bg-black/40 border border-gray-700 rounded p-3 flex flex-col items-center">
-                 <span className="text-green-500 font-bold text-xs tracking-widest mb-3">FX DECK A</span>
-                 <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full justify-center">
+              <div className="flex-1 bg-cyber-dark/60 border border-neon-cyan/10 rounded-none p-4 flex flex-col items-center transition-all hover:bg-neon-cyan/5">
+                 <span className="text-neon-cyan font-cyber font-bold text-[10px] tracking-[0.3em] mb-4 opacity-70">DECK_A // PROCESSOR</span>
+                 <div className="flex flex-wrap sm:flex-nowrap gap-3 w-full justify-center">
                     <button 
                       onClick={() => setModeA('normal')}
-                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 min-w-[80px] ${modeA === 'normal' ? 'active-mode' : ''}`}
+                      className={`retro-btn text-[9px] px-3 py-3 font-cyber tracking-widest flex-1 min-w-[80px] ${modeA === 'normal' ? 'active-mode' : ''}`}
                     >
-                      NORMAL
+                      FLAT_O
                     </button>
                     <button 
                       onClick={() => setModeA('echo')}
-                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 min-w-[80px] ${modeA === 'echo' ? 'active-mode' : ''}`}
+                      className={`retro-btn text-[9px] px-3 py-3 font-cyber tracking-widest flex-1 min-w-[80px] ${modeA === 'echo' ? 'active-mode' : ''}`}
                     >
-                      ECHO DELAY
+                      ECHO_S
                     </button>
                     <button 
                       onClick={() => setModeA('radio')}
-                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 min-w-[80px] ${modeA === 'radio' ? 'active-mode' : ''}`}
+                      className={`retro-btn text-[9px] px-3 py-3 font-cyber tracking-widest flex-1 min-w-[80px] ${modeA === 'radio' ? 'active-mode' : ''}`}
                     >
-                      RADIO EQ
+                      LOFI_R
                     </button>
                  </div>
               </div>
@@ -976,92 +1071,93 @@ const App = () => {
               <div className="w-full lg:w-1 h-1 lg:h-auto bg-gray-800 rounded"></div>
 
               {/* Controles FX DECK B */}
-              <div className="flex-1 bg-black/40 border border-gray-700 rounded p-3 flex flex-col items-center">
-                 <span className="text-green-500 font-bold text-xs tracking-widest mb-3">FX DECK B</span>
-                 <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full justify-center">
+              <div className="flex-1 bg-cyber-dark/60 border border-neon-magenta/10 rounded-none p-4 flex flex-col items-center transition-all hover:bg-neon-magenta/5">
+                 <span className="text-neon-magenta font-cyber font-bold text-[10px] tracking-[0.3em] mb-4 opacity-70">DECK_B // PROCESSOR</span>
+                 <div className="flex flex-wrap sm:flex-nowrap gap-3 w-full justify-center">
                     <button 
                       onClick={() => setModeB('normal')}
-                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 min-w-[80px] ${modeB === 'normal' ? 'active-mode' : ''}`}
+                      className={`retro-btn text-[9px] px-3 py-3 font-cyber tracking-widest flex-1 min-w-[80px] ${modeB === 'normal' ? 'active-mode' : ''}`}
                     >
-                      NORMAL
+                      FLAT_O
                     </button>
                     <button 
                       onClick={() => setModeB('echo')}
-                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 min-w-[80px] ${modeB === 'echo' ? 'active-mode' : ''}`}
+                      className={`retro-btn text-[9px] px-3 py-3 font-cyber tracking-widest flex-1 min-w-[80px] ${modeB === 'echo' ? 'active-mode' : ''}`}
                     >
-                      ECHO DELAY
+                      ECHO_S
                     </button>
                     <button 
                       onClick={() => setModeB('radio')}
-                      className={`retro-btn text-[10px] px-3 py-2 font-bold flex-1 min-w-[80px] ${modeB === 'radio' ? 'active-mode' : ''}`}
+                      className={`retro-btn text-[9px] px-3 py-3 font-cyber tracking-widest flex-1 min-w-[80px] ${modeB === 'radio' ? 'active-mode' : ''}`}
                     >
-                      RADIO EQ
+                      LOFI_R
                     </button>
                  </div>
               </div>
            </div>
+           
         </div>
 
         {/* LIBRERÍA DE PISTAS LOCAL (PLAYLIST) */}
-        <div className="winamp-panel p-2 rounded-lg w-full flex flex-col min-h-[250px]">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-gray-800 p-2 mb-2 border border-gray-600 rounded gap-3">
-            <span className="text-xs text-gray-300 font-bold ml-1 lg:ml-2 tracking-widest flex items-center gap-2 whitespace-nowrap">
-               <FolderOpen size={16}/> LIBRERÍA / AUTOPLAY
+        <div className="winamp-panel p-2 rounded-lg w-full flex flex-col min-h-[300px] border-neon-cyan/10">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-black/60 p-3 mb-2 border border-white/5 rounded-none gap-3">
+            <span className="font-cyber text-[10px] text-neon-cyan font-bold ml-1 lg:ml-2 tracking-[0.2em] flex items-center gap-3 whitespace-nowrap">
+               <FolderOpen size={16} className="text-neon-cyan"/> CLOUD_STORAGE // TRACK_REPOS
             </span>
 
             {/* MINIREPRODUCTOR DE LA LISTA */}
-            <div className="flex items-center bg-black border border-gray-600 rounded px-2 gap-2 h-8">
-              <button onClick={playPlaylistPrev} className="text-gray-400 hover:text-white transition-colors"><SkipBack size={14} /></button>
+            <div className="flex items-center bg-cyber-dark border border-neon-cyan/20 rounded px-3 gap-3 h-10 shadow-[inset_0_0_10px_rgba(0,240,255,0.05)]">
+              <button onClick={playPlaylistPrev} className="text-neon-cyan/50 hover:text-neon-cyan transition-colors"><SkipBack size={16} /></button>
               <button 
                  onClick={togglePlaylistPlay} 
-                 className={`font-bold flex items-center gap-1 transition-colors ${playlistPlayer.isPlaying ? 'text-green-400' : 'text-gray-400 hover:text-white'}`}
+                 className={`font-cyber flex items-center gap-1 transition-all ${playlistPlayer.isPlaying ? 'text-neon-magenta shadow-[0_0_10px_#ff2d7b]' : 'text-neon-cyan/50 hover:text-neon-cyan'}`}
               >
-                {playlistPlayer.isPlaying ? <Pause size={14} /> : <Play size={14} />}
-                <span className="text-[10px] tracking-wider ml-1">AUTOPLAY</span>
+                {playlistPlayer.isPlaying ? <Pause size={16} /> : <Play size={16} />}
+                <span className="text-[9px] tracking-[0.2em] ml-2">AUTOPLAY_SEQ</span>
               </button>
-              <button onClick={playPlaylistNext} className="text-gray-400 hover:text-white transition-colors"><SkipForward size={14} /></button>
+              <button onClick={playPlaylistNext} className="text-neon-cyan/50 hover:text-neon-cyan transition-colors"><SkipForward size={16} /></button>
             </div>
             
             <div className="flex-1 flex flex-col sm:flex-row items-center gap-3 w-full justify-end">
-               <div className="flex-1 flex items-center bg-black border border-gray-600 rounded px-2 w-full max-w-[300px]">
-                  <Search size={14} className="text-gray-400" />
+               <div className="flex-1 flex items-center bg-black/40 border border-white/10 rounded-none px-3 w-full max-w-[300px] focus-within:border-neon-cyan transition-all">
+                  <Search size={14} className="text-neon-cyan" />
                   <input 
                     type="text" 
-                    placeholder="BUSCAR..." 
+                    placeholder="QUERY_DATABASE..." 
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="bg-transparent text-xs text-green-400 font-mono outline-none p-1.5 w-full placeholder-gray-600"
+                    className="bg-transparent text-[11px] text-neon-cyan font-mono-retro outline-none p-2 w-full placeholder-neon-cyan/20"
                   />
                </div>
 
                <div className="flex gap-2 w-full sm:w-auto">
                  <button 
                    onClick={clearEntirePlaylist}
-                   className="retro-btn text-xs px-3 py-2 lg:py-1.5 font-bold w-full sm:w-auto whitespace-nowrap bg-red-900/40 text-red-200 hover:bg-red-800"
-                   title="Borrar todas las pistas guardadas"
+                   className="retro-btn text-[10px] px-3 py-2 lg:py-1.5 font-cyber w-full sm:w-auto whitespace-nowrap text-neon-magenta border-neon-magenta/40 hover:bg-neon-magenta/20"
+                   title="Wipe data"
                  >
-                   VACIAR
+                   WIPE_ALL
                  </button>
                  <button 
                    onClick={() => playlistInputRef.current?.click()}
-                   className="retro-btn text-xs px-4 py-2 lg:py-1.5 font-bold w-full sm:w-auto whitespace-nowrap"
+                   className="retro-btn text-[10px] px-4 py-2 lg:py-1.5 font-cyber w-full sm:w-auto whitespace-nowrap bg-neon-cyan/10 text-neon-cyan border-neon-cyan/50 hover:bg-neon-cyan/30"
                  >
-                   + AÑADIR ARCHIVOS
+                   + INGEST_BLOCKS
                  </button>
                </div>
             </div>
           </div>
           
-          <div className="flex-1 bg-black border-2 border-gray-700 rounded overflow-y-auto p-2 custom-scrollbar">
+          <div className="flex-1 bg-black/40 border border-white/5 rounded-none overflow-y-auto p-4 custom-scrollbar">
             {files.length === 0 ? (
-              <div className="retro-text text-sm opacity-50 text-center mt-6 flex flex-col items-center gap-2 p-4">
-                <Disc3 size={32} />
-                No hay música cargada en la lista.<br/>Haz clic en '+ AÑADIR ARCHIVOS' para agregar tu música.
+              <div className="font-mono-retro text-xs opacity-50 text-center mt-6 flex flex-col items-center gap-4 p-8 text-neon-cyan">
+                <Disc3 size={40} className="animate-spin-slow" />
+                DATABASE_EMPTY :: AWAITING_INGESTION...<br/>USE '+ INGEST_BLOCKS' TO POPULATE REPOSITORY.
               </div>
             ) : filteredFiles.length === 0 ? (
-              <div className="retro-text text-sm opacity-50 text-center mt-6 flex flex-col items-center gap-2 p-4">
-                <Search size={32} />
-                No se encontraron pistas que coincidan con "{searchQuery}".
+              <div className="font-mono-retro text-xs opacity-50 text-center mt-6 flex flex-col items-center gap-4 p-8 text-neon-magenta">
+                <Search size={40} />
+                NO_RECORDS_MATCH_QUERY: "{searchQuery}"
               </div>
             ) : (
               <ul className="space-y-1">
@@ -1070,41 +1166,41 @@ const App = () => {
                   const isCurrentlyPlaying = playlistPlayer.isPlaying && playlistPlayer.currentIndex === originalIndex;
                   return (
                   <li key={`${file.name}-${file.size}-${index}`} 
-                      className={`flex flex-col sm:flex-row items-start sm:items-center justify-between p-2 hover:bg-gray-900 border-b border-gray-800 group gap-2 sm:gap-0 transition-colors
-                                  ${isCurrentlyPlaying ? 'bg-green-900/30 border-l-4 border-l-green-500' : 'border-l-4 border-l-transparent'}`}>
+                      className={`flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 hover:bg-neon-cyan/5 border-b border-white/5 group gap-3 sm:gap-0 transition-all
+                                  ${isCurrentlyPlaying ? 'bg-neon-cyan/10 border-l-2 border-l-neon-cyan shadow-[inset_10px_0_15px_-10px_rgba(0,240,255,0.3)]' : 'border-l-2 border-l-transparent'}`}>
                     
                     <div className="flex items-center flex-1 w-full sm:w-auto truncate overflow-hidden">
                       {/* Botón para reproducir ESTA canción en el AutoPlay */}
                       <button 
                         onClick={() => playPlaylistTrack(originalIndex)}
-                        className={`mr-3 p-1.5 rounded-full transition-colors ${isCurrentlyPlaying ? 'bg-green-500 text-black' : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'}`}
-                        title="Reproducir desde aquí (AutoPlay)"
+                        className={`mr-4 p-2 rounded-none transition-all border ${isCurrentlyPlaying ? 'bg-neon-cyan text-black border-white shadow-[0_0_15px_#00f0ff]' : 'bg-black/80 text-neon-cyan/60 border-neon-cyan/30 hover:bg-neon-cyan hover:text-black hover:border-white'}`}
+                        title="Execute from here"
                       >
-                         {isCurrentlyPlaying ? <Pause size={12} fill="currentColor"/> : <Play size={12} fill="currentColor" className="ml-0.5" />}
+                         {isCurrentlyPlaying ? <Pause size={14} fill="currentColor"/> : <Play size={14} fill="currentColor" className="ml-0.5" />}
                       </button>
                       
-                      <span className={`retro-text text-xs lg:text-base truncate font-bold ${isCurrentlyPlaying ? 'text-green-400' : 'text-gray-400'}`}>
+                      <span className={`font-mono-retro text-xs lg:text-sm truncate font-bold tracking-wider ${isCurrentlyPlaying ? 'text-neon-cyan' : 'text-gray-400 group-hover:text-neon-cyan/80'}`}>
                         {originalIndex + 1}. {file.name.replace(/\.[^/.]+$/, "")}
                       </span>
                     </div>
 
-                    <div className="flex gap-2 w-full sm:w-auto px-1 items-center justify-end">
+                    <div className="flex gap-3 w-full sm:w-auto px-1 items-center justify-end">
                       <button 
                         onClick={() => loadTrackToDeck(file, 'A')}
-                        className="retro-btn flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-4 py-1.5 font-bold"
+                        className="retro-btn flex-1 sm:flex-none text-[9px] lg:text-[10px] px-3 lg:px-4 py-2 font-cyber tracking-widest border-neon-cyan/40"
                       >
-                        CARGAR A
+                        FLUSH_A
                       </button>
                       <button 
                         onClick={() => loadTrackToDeck(file, 'B')}
-                        className="retro-btn flex-1 sm:flex-none text-[10px] lg:text-xs px-2 lg:px-4 py-1.5 font-bold"
+                        className="retro-btn flex-1 sm:flex-none text-[9px] lg:text-[10px] px-3 lg:px-4 py-2 font-cyber tracking-widest border-neon-cyan/40"
                       >
-                        CARGAR B
+                        FLUSH_B
                       </button>
                       <button
                         onClick={() => removeTrackFromPlaylist(file)}
-                        className="p-1.5 rounded bg-red-900/30 hover:bg-red-800 text-red-500 hover:text-white border border-red-800 transition-colors ml-1"
-                        title="Eliminar pista"
+                        className="p-2 rounded-none bg-transparent hover:bg-neon-magenta/20 text-neon-magenta/50 hover:text-neon-magenta border border-neon-magenta/20 transition-all ml-1 shadow-[inset_0_0_10px_rgba(255,45,123,0.05)]"
+                        title="Purge record"
                       >
                          <Trash2 size={16} />
                       </button>
@@ -1115,11 +1211,17 @@ const App = () => {
             )}
           </div>
           
-          <div className="mt-2 flex justify-end gap-2">
-             <div className="bg-black border border-gray-700 px-3 py-1 retro-text text-[10px] flex items-center font-bold">
-               {searchQuery ? `${filteredFiles.length} / ${files.length}` : files.length} PISTAS CARGADAS
+          <div className="mt-3 flex justify-end gap-2">
+             <div className="bg-black/60 border border-neon-cyan/20 px-3 py-1 font-mono-retro text-[9px] text-neon-cyan flex items-center font-bold tracking-widest">
+                {searchQuery ? `MATCHED://${filteredFiles.length} // TOTAL://${files.length}` : `TOTAL_RECORDS://${files.length}`}
              </div>
           </div>
+        </div>
+        </div> {/* End of LEFT COLUMN */}
+
+        {/* RIGHT COLUMN: Lyrics Panel */}
+        <div className="w-full lg:w-[350px] shrink-0 flex flex-col h-[500px] lg:h-auto">
+           <LyricsPanel />
         </div>
 
       </div>
