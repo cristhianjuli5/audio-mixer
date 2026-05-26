@@ -83,6 +83,9 @@ const App = () => {
   const [lyrics, setLyrics] = useState('');
   const [showLyrics, setShowLyrics] = useState(false);
 
+  // Waveform States
+  const [waveformData, setWaveformData] = useState({ A: null, B: null });
+
   // Scrubbing (Scratch & Drag) States
   const [isScrubbing, setIsScrubbing] = useState(false);
   const lastMouseXRef = useRef(0);
@@ -436,6 +439,33 @@ const App = () => {
   const loadTrackToDeck = (file, deckId) => {
     initAudio(); 
     const objectUrl = URL.createObjectURL(file);
+
+    // Waveform peak extraction
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const audioData = e.target.result;
+        const decodedData = await audioCtxRef.current.decodeAudioData(audioData);
+        const channelData = decodedData.getChannelData(0);
+        const samples = 2000;
+        const blockSize = Math.floor(channelData.length / samples);
+        const peaks = [];
+        for (let i = 0; i < samples; i++) {
+          let min = 1.0;
+          let max = -1.0;
+          for (let j = 0; j < blockSize; j++) {
+            const datum = channelData[i * blockSize + j];
+            if (datum < min) min = datum;
+            if (datum > max) max = datum;
+          }
+          peaks.push(Math.max(Math.abs(min), Math.abs(max)));
+        }
+        setWaveformData(prev => ({ ...prev, [deckId]: peaks }));
+      } catch (err) {
+        console.error("Error decoding audio data", err);
+      }
+    };
+    reader.readAsArrayBuffer(file);
     
     if (deckId === 'A') {
       if (audioARef.current.src) URL.revokeObjectURL(audioARef.current.src);
@@ -675,32 +705,103 @@ const App = () => {
     <div className="winamp-panel p-4 rounded-lg flex flex-col h-full border-neon-cyan/50 shadow-[0_0_20px_rgba(0,240,255,0.15)] bg-black/80">
       <div className="flex justify-between items-center mb-3 border-b border-neon-cyan/30 pb-2">
         <h3 className="font-cyber text-neon-cyan text-sm tracking-widest flex items-center gap-2 glitch-text">
-          <Search size={14} className="text-neon-cyan" /> DATAPAD_LYRICS // v2.0
+          <Search size={14} className="text-neon-cyan" /> DATAPAD_LETRAS // v2.0
         </h3>
         <button 
           onClick={() => { setLyrics(''); localStorage.removeItem(`lyrics_${deckA.track?.name || deckB.track?.name || ""}`); }}
           className="text-[9px] text-neon-magenta hover:text-black hover:bg-neon-magenta transition-all border border-neon-magenta/50 px-2 py-0.5 rounded shadow-[0_0_5px_#ff2d7b]"
         >
-          FORCE_PURGE
+          FORZAR_PURGA
         </button>
       </div>
       <textarea
         value={lyrics}
         onChange={handleLyricsChange}
-        placeholder={deckA.track || deckB.track ? "PASTE OR TYPE LYRICS HERE..." : "LOAD A TRACK TO ADD LYRICS..."}
+        placeholder={deckA.track || deckB.track ? "PEGA O ESCRIBE LAS LETRAS AQUÍ..." : "CARGA UNA PISTA PARA AÑADIR LETRAS..."}
         className="w-full flex-1 min-h-[200px] bg-black/60 text-neon-cyan font-mono-retro text-sm p-4 rounded border border-neon-cyan/50 focus:border-neon-cyan outline-none resize-none custom-scrollbar shadow-[inset_0_0_15px_rgba(0,240,255,0.2)]"
       />
       <div className="mt-3 text-[10px] text-neon-cyan/60 font-mono-retro flex justify-between">
-        <span>* AUTO-SYNCING TO LOCAL_STORAGE</span>
-        <span className="animate-pulse text-neon-yellow">STATUS: OK</span>
+        <span>* SINCRONIZANDO CON LOCAL_STORAGE</span>
+        <span className="animate-pulse text-neon-yellow">ESTADO: OK</span>
       </div>
     </div>
   );
 
+  const DualWaveformDisplay = () => {
+    const canvasARef = useRef(null);
+    const canvasBRef = useRef(null);
+    const reqRef = useRef(null);
+
+    const draw = useCallback(() => {
+      const drawWave = (canvas, peaks, deck, color) => {
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        ctx.clearRect(0, 0, width, height);
+        
+        if (!peaks || peaks.length === 0) {
+          ctx.fillStyle = color + '40';
+          ctx.font = '10px "Share Tech Mono"';
+          ctx.fillText('EXTRAYENDO_FRECUENCIAS...', 10, height / 2 + 3);
+          return;
+        }
+
+        const progress = deck.duration ? deck.time / deck.duration : 0;
+        const barWidth = 2;
+        const gap = 1;
+        const step = barWidth + gap;
+        const totalWidth = peaks.length * step;
+        
+        const center = width / 2;
+        const offset = center - (totalWidth * progress);
+
+        ctx.fillStyle = color;
+        ctx.shadowBlur = 4;
+        ctx.shadowColor = color;
+        
+        for (let i = 0; i < peaks.length; i++) {
+          const x = offset + (i * step);
+          if (x > -barWidth && x < width) {
+            const h = Math.max(1, peaks[i] * height * 0.9);
+            ctx.fillRect(x, (height - h) / 2, barWidth, h);
+          }
+        }
+        
+        ctx.fillStyle = '#ff0000';
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#ff0000';
+        ctx.fillRect(center - 1, 0, 2, height);
+      };
+
+      drawWave(canvasARef.current, waveformData.A, deckA, '#00f0ff');
+      drawWave(canvasBRef.current, waveformData.B, deckB, '#ff2d7b');
+      reqRef.current = requestAnimationFrame(draw);
+    }, [waveformData, deckA, deckB]);
+
+    useEffect(() => {
+      reqRef.current = requestAnimationFrame(draw);
+      return () => cancelAnimationFrame(reqRef.current);
+    }, [draw]);
+
+    return (
+      <div className="w-full bg-cyber-dark/80 border border-neon-cyan/20 rounded-none mb-4 p-2 shadow-[0_0_20px_rgba(0,240,255,0.05)] flex flex-col gap-1">
+        <div className="relative h-16 lg:h-20 w-full overflow-hidden bg-black/60 border border-neon-cyan/30">
+          <div className="absolute top-1 left-2 text-[9px] font-cyber text-neon-cyan z-10 opacity-70">DECK_A // ONDA_FREQ</div>
+          <canvas ref={canvasARef} width={1200} height={80} className="w-full h-full"></canvas>
+        </div>
+        <div className="relative h-16 lg:h-20 w-full overflow-hidden bg-black/60 border border-neon-magenta/30">
+          <div className="absolute top-1 left-2 text-[9px] font-cyber text-neon-magenta z-10 opacity-70">DECK_B // ONDA_FREQ</div>
+          <canvas ref={canvasBRef} width={1200} height={80} className="w-full h-full"></canvas>
+        </div>
+      </div>
+    );
+  };
+
   const Deck = ({ id, deckState }) => (
     <div className="flex-1 winamp-panel p-3 rounded-lg flex flex-col relative h-full w-full lg:w-auto overflow-hidden group">
       <div className="absolute top-0 left-0 w-full text-center text-[10px] text-neon-cyan bg-black/80 border-b border-neon-cyan/30 py-1 font-cyber tracking-widest z-10">
-        DECK_{id} // STATUS: {deckState.isPlaying ? 'ACTIVE' : 'IDLE'}
+        DECK_{id} // ESTADO: {deckState.isPlaying ? 'ACTIVO' : 'INACTIVO'}
       </div>
       
       <div className="mt-7 bg-cyber-dark/80 p-3 rounded border border-neon-cyan/30 shadow-[0_0_15px_rgba(0,240,255,0.05)] flex flex-col gap-2 relative overflow-hidden">
@@ -709,13 +810,13 @@ const App = () => {
         
         <div className="flex justify-between items-center mb-1">
            <div className="font-mono-retro text-xs lg:text-sm truncate text-neon-cyan shadow-neon-cyan/50 px-1 font-bold flex-1 mr-2 glitch-text">
-             {deckState.track ? `${id}: ${deckState.track.name.replace(/\.[^/.]+$/, "")}` : `--- NO_DATA_STREAM ---`}
+             {deckState.track ? `${id}: ${deckState.track.name.replace(/\.[^/.]+$/, "")}` : `--- SIN_DATOS ---`}
            </div>
            <button 
              onClick={() => triggerLoad(id)} 
              className="retro-btn text-[9px] px-2 py-1 font-cyber font-bold flex items-center gap-1 shrink-0 border-neon-magenta/50 text-neon-magenta bg-transparent"
            >
-             <Upload size={10} /> INJECT_FILE
+             <Upload size={10} /> INYECTAR_PISTA
            </button>
         </div>
         
@@ -725,7 +826,7 @@ const App = () => {
           </div>
           <div className="text-right">
              <div className={`font-mono-retro text-[10px] lg:text-xs mb-1 ${deckState.isPlaying ? 'text-neon-cyan animate-pulse' : 'text-gray-600'}`}>
-               {deckState.isPlaying ? '>> EXECUTING' : '|| HALTED'}
+               {deckState.isPlaying ? '>> EJECUTANDO' : '|| DETENIDO'}
              </div>
              <div className="text-neon-yellow font-mono-retro text-[10px] lg:text-xs bg-neon-yellow/5 px-1 border border-neon-yellow/20 rounded">
                FRQ: {(deckState.pitch * 100).toFixed(0)}%
@@ -776,7 +877,7 @@ const App = () => {
         </div>
         
         <div className="flex items-center gap-2 bg-black/40 p-2 rounded border border-white/5">
-           <span className="text-[9px] text-neon-cyan font-cyber font-bold rotate-180 hidden lg:block" style={{writingMode: 'vertical-rl'}}>SYNC_RATE</span>
+           <span className="text-[9px] text-neon-cyan font-cyber font-bold rotate-180 hidden lg:block" style={{writingMode: 'vertical-rl'}}>VELOC_SYNC</span>
            <span className="text-[9px] text-neon-cyan font-cyber font-bold lg:hidden">SYNC</span>
            <div className="h-20 lg:h-28 flex items-center">
               <input 
@@ -792,7 +893,7 @@ const App = () => {
              onClick={() => changePitch(id, 1)} 
              className="text-[9px] bg-cyber-dark text-neon-yellow hover:bg-neon-yellow hover:text-black px-1 py-4 rounded border border-neon-yellow/30 font-cyber font-bold transition-all"
            >
-             RESET
+             REINICIAR
            </button>
         </div>
       </div>
@@ -917,7 +1018,7 @@ const App = () => {
 
       {uiMessage && (
         <div className="fixed top-8 left-1/2 -translate-x-1/2 bg-black text-neon-cyan font-cyber px-6 py-3 text-sm lg:text-base rounded-none z-[2000] shadow-[0_0_20px_#00f0ff] border border-neon-cyan whitespace-nowrap animate-glitch">
-          <span className="mr-2">SYSTEM_MSG ::</span> {uiMessage}
+          <span className="mr-2">MENSAJE_SISTEMA ::</span> {uiMessage}
         </div>
       )}
 
@@ -942,9 +1043,11 @@ const App = () => {
               ${isRecording ? 'bg-neon-magenta text-white border-white animate-flicker shadow-[0_0_15px_#ff2d7b]' : 'bg-transparent text-neon-yellow border-neon-yellow/50 hover:bg-neon-yellow/10 hover:border-neon-yellow'}`}
           >
             {isRecording ? <StopCircle size={18} fill="currentColor" /> : <Mic size={18} />}
-            <span className="text-sm lg:text-base">{isRecording ? 'STREAMING_REC...' : 'START_CAPTURE'}</span>
+            <span className="text-sm lg:text-base">{isRecording ? 'GRABANDO_STREAM...' : 'INICIAR_CAPTURA'}</span>
           </button>
         </div>
+
+        <DualWaveformDisplay />
 
         {/* TOP ROW: Deck A | Center Mixer/Disc | Deck B */}
         <div className="flex flex-col lg:flex-row gap-4 h-auto lg:h-[360px] w-full">
@@ -953,7 +1056,7 @@ const App = () => {
           {/* CENTRAL MIXER & DISC */}
           <div className="winamp-panel p-3 rounded-lg flex flex-col relative w-full lg:w-[340px] shrink-0 items-center justify-between min-h-[300px] lg:min-h-0 border-neon-magenta/20">
             <div className="absolute top-0 left-0 w-full text-center text-[10px] text-neon-magenta bg-black/80 border-b border-neon-magenta/30 py-1 font-cyber tracking-widest z-10">
-              CORE_PROCESSOR // MASTER
+              PROCESADOR_CENTRAL // MASTER
             </div>
 
             <div className="mt-7 w-full max-w-[280px] bg-cyber-dark/80 p-1 rounded border border-neon-cyan/20 h-10 mb-2 overflow-hidden">
@@ -1018,7 +1121,7 @@ const App = () => {
                  <div className="flex flex-col">
                    <div className="flex justify-between text-[10px] font-cyber font-bold text-neon-cyan mb-1 tracking-tighter opacity-70">
                      <span>DECK_A</span>
-                     <span>CROSSFADER_V1</span>
+                     <span>MEZCLADOR_V1</span>
                      <span>DECK_B</span>
                    </div>
                    <input 
@@ -1038,31 +1141,31 @@ const App = () => {
         {/* BOTTOM ROW: Efectos de Sonido (FX) */}
         <div className="winamp-panel p-3 rounded-lg w-full flex flex-col relative mt-2 border-neon-cyan/20">
            <div className="absolute top-0 left-0 w-full text-center text-[10px] text-neon-cyan bg-black/80 border-b border-neon-cyan/30 py-1 font-cyber tracking-widest z-10 flex justify-center items-center gap-4">
-              <span className="animate-pulse">●</span> ANALOG_FX_MODULE // OVERLOAD_ALLOWED <span className="animate-pulse">●</span>
+              <span className="animate-pulse">●</span> MÓDULO_FX_ANALÓGICO // SOBRECARGA_PERMITIDA <span className="animate-pulse">●</span>
            </div>
 
            <div className="mt-8 flex flex-col lg:flex-row gap-4 w-full h-full">
               {/* Controles FX DECK A */}
               <div className="flex-1 bg-cyber-dark/60 border border-neon-cyan/10 rounded-none p-4 flex flex-col items-center transition-all hover:bg-neon-cyan/5">
-                 <span className="text-neon-cyan font-cyber font-bold text-[10px] tracking-[0.3em] mb-4 opacity-70">DECK_A // PROCESSOR</span>
+                 <span className="text-neon-cyan font-cyber font-bold text-[10px] tracking-[0.3em] mb-4 opacity-70">DECK_A // PROCESADOR</span>
                  <div className="flex flex-wrap sm:flex-nowrap gap-3 w-full justify-center">
                     <button 
                       onClick={() => setModeA('normal')}
                       className={`retro-btn text-[9px] px-3 py-3 font-cyber tracking-widest flex-1 min-w-[80px] ${modeA === 'normal' ? 'active-mode' : ''}`}
                     >
-                      FLAT_O
+                      PLANO_O
                     </button>
                     <button 
                       onClick={() => setModeA('echo')}
                       className={`retro-btn text-[9px] px-3 py-3 font-cyber tracking-widest flex-1 min-w-[80px] ${modeA === 'echo' ? 'active-mode' : ''}`}
                     >
-                      ECHO_S
+                      ECO_S
                     </button>
                     <button 
                       onClick={() => setModeA('radio')}
                       className={`retro-btn text-[9px] px-3 py-3 font-cyber tracking-widest flex-1 min-w-[80px] ${modeA === 'radio' ? 'active-mode' : ''}`}
                     >
-                      LOFI_R
+                      RADIO_R
                     </button>
                  </div>
               </div>
@@ -1072,25 +1175,25 @@ const App = () => {
 
               {/* Controles FX DECK B */}
               <div className="flex-1 bg-cyber-dark/60 border border-neon-magenta/10 rounded-none p-4 flex flex-col items-center transition-all hover:bg-neon-magenta/5">
-                 <span className="text-neon-magenta font-cyber font-bold text-[10px] tracking-[0.3em] mb-4 opacity-70">DECK_B // PROCESSOR</span>
+                 <span className="text-neon-magenta font-cyber font-bold text-[10px] tracking-[0.3em] mb-4 opacity-70">DECK_B // PROCESADOR</span>
                  <div className="flex flex-wrap sm:flex-nowrap gap-3 w-full justify-center">
                     <button 
                       onClick={() => setModeB('normal')}
                       className={`retro-btn text-[9px] px-3 py-3 font-cyber tracking-widest flex-1 min-w-[80px] ${modeB === 'normal' ? 'active-mode' : ''}`}
                     >
-                      FLAT_O
+                      PLANO_O
                     </button>
                     <button 
                       onClick={() => setModeB('echo')}
                       className={`retro-btn text-[9px] px-3 py-3 font-cyber tracking-widest flex-1 min-w-[80px] ${modeB === 'echo' ? 'active-mode' : ''}`}
                     >
-                      ECHO_S
+                      ECO_S
                     </button>
                     <button 
                       onClick={() => setModeB('radio')}
                       className={`retro-btn text-[9px] px-3 py-3 font-cyber tracking-widest flex-1 min-w-[80px] ${modeB === 'radio' ? 'active-mode' : ''}`}
                     >
-                      LOFI_R
+                      RADIO_R
                     </button>
                  </div>
               </div>
@@ -1102,7 +1205,7 @@ const App = () => {
         <div className="winamp-panel p-2 rounded-lg w-full flex flex-col min-h-[300px] border-neon-cyan/10">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-black/60 p-3 mb-2 border border-white/5 rounded-none gap-3">
             <span className="font-cyber text-[10px] text-neon-cyan font-bold ml-1 lg:ml-2 tracking-[0.2em] flex items-center gap-3 whitespace-nowrap">
-               <FolderOpen size={16} className="text-neon-cyan"/> CLOUD_STORAGE // TRACK_REPOS
+               <FolderOpen size={16} className="text-neon-cyan"/> ALMACÉN_NUBE // REPOSITORIO
             </span>
 
             {/* MINIREPRODUCTOR DE LA LISTA */}
@@ -1113,7 +1216,7 @@ const App = () => {
                  className={`font-cyber flex items-center gap-1 transition-all ${playlistPlayer.isPlaying ? 'text-neon-magenta shadow-[0_0_10px_#ff2d7b]' : 'text-neon-cyan/50 hover:text-neon-cyan'}`}
               >
                 {playlistPlayer.isPlaying ? <Pause size={16} /> : <Play size={16} />}
-                <span className="text-[9px] tracking-[0.2em] ml-2">AUTOPLAY_SEQ</span>
+                <span className="text-[9px] tracking-[0.2em] ml-2">REPRODUCIR_SEQ</span>
               </button>
               <button onClick={playPlaylistNext} className="text-neon-cyan/50 hover:text-neon-cyan transition-colors"><SkipForward size={16} /></button>
             </div>
@@ -1123,7 +1226,7 @@ const App = () => {
                   <Search size={14} className="text-neon-cyan" />
                   <input 
                     type="text" 
-                    placeholder="QUERY_DATABASE..." 
+                    placeholder="BUSCAR_EN_BASE_DATOS..." 
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="bg-transparent text-[11px] text-neon-cyan font-mono-retro outline-none p-2 w-full placeholder-neon-cyan/20"
@@ -1136,13 +1239,13 @@ const App = () => {
                    className="retro-btn text-[10px] px-3 py-2 lg:py-1.5 font-cyber w-full sm:w-auto whitespace-nowrap text-neon-magenta border-neon-magenta/40 hover:bg-neon-magenta/20"
                    title="Wipe data"
                  >
-                   WIPE_ALL
+                   LIMPIAR_TODO
                  </button>
                  <button 
                    onClick={() => playlistInputRef.current?.click()}
                    className="retro-btn text-[10px] px-4 py-2 lg:py-1.5 font-cyber w-full sm:w-auto whitespace-nowrap bg-neon-cyan/10 text-neon-cyan border-neon-cyan/50 hover:bg-neon-cyan/30"
                  >
-                   + INGEST_BLOCKS
+                   + AÑADIR_PISTAS
                  </button>
                </div>
             </div>
@@ -1152,12 +1255,12 @@ const App = () => {
             {files.length === 0 ? (
               <div className="font-mono-retro text-xs opacity-50 text-center mt-6 flex flex-col items-center gap-4 p-8 text-neon-cyan">
                 <Disc3 size={40} className="animate-spin-slow" />
-                DATABASE_EMPTY :: AWAITING_INGESTION...<br/>USE '+ INGEST_BLOCKS' TO POPULATE REPOSITORY.
+                BASE_DATOS_VACÍA :: ESPERANDO_PISTAS...<br/>USA '+ AÑADIR_PISTAS' PARA LLENAR EL REPOSITORIO.
               </div>
             ) : filteredFiles.length === 0 ? (
               <div className="font-mono-retro text-xs opacity-50 text-center mt-6 flex flex-col items-center gap-4 p-8 text-neon-magenta">
                 <Search size={40} />
-                NO_RECORDS_MATCH_QUERY: "{searchQuery}"
+                NO_HAY_COINCIDENCIAS: "{searchQuery}"
               </div>
             ) : (
               <ul className="space-y-1">
@@ -1189,13 +1292,13 @@ const App = () => {
                         onClick={() => loadTrackToDeck(file, 'A')}
                         className="retro-btn flex-1 sm:flex-none text-[9px] lg:text-[10px] px-3 lg:px-4 py-2 font-cyber tracking-widest border-neon-cyan/40"
                       >
-                        FLUSH_A
+                        CARGAR_A
                       </button>
                       <button 
                         onClick={() => loadTrackToDeck(file, 'B')}
                         className="retro-btn flex-1 sm:flex-none text-[9px] lg:text-[10px] px-3 lg:px-4 py-2 font-cyber tracking-widest border-neon-cyan/40"
                       >
-                        FLUSH_B
+                        CARGAR_B
                       </button>
                       <button
                         onClick={() => removeTrackFromPlaylist(file)}
@@ -1213,7 +1316,7 @@ const App = () => {
           
           <div className="mt-3 flex justify-end gap-2">
              <div className="bg-black/60 border border-neon-cyan/20 px-3 py-1 font-mono-retro text-[9px] text-neon-cyan flex items-center font-bold tracking-widest">
-                {searchQuery ? `MATCHED://${filteredFiles.length} // TOTAL://${files.length}` : `TOTAL_RECORDS://${files.length}`}
+                {searchQuery ? `ENCONTRADAS://${filteredFiles.length} // TOTAL://${files.length}` : `TOTAL_PISTAS://${files.length}`}
              </div>
           </div>
         </div>
