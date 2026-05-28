@@ -740,31 +740,117 @@ const App = () => {
     file.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const LyricsPanel = () => (
-    <div className="winamp-panel p-4 rounded-lg flex flex-col h-full border-neon-cyan/50 shadow-[0_0_20px_rgba(0,240,255,0.15)] bg-black/80">
-      <div className="flex justify-between items-center mb-3 border-b border-neon-cyan/30 pb-2">
-        <h3 className="font-cyber text-neon-cyan text-sm tracking-widest flex items-center gap-2 glitch-text">
-          <Search size={14} className="text-neon-cyan" /> DATAPAD_LETRAS // v2.0
-        </h3>
-        <button 
-          onClick={() => { setLyrics(''); localStorage.removeItem(`lyrics_${deckA.track?.name || deckB.track?.name || ""}`); }}
-          className="text-[9px] text-neon-magenta hover:text-black hover:bg-neon-magenta transition-all border border-neon-magenta/50 px-2 py-0.5 rounded shadow-[0_0_5px_#ff2d7b]"
-        >
-          FORZAR_PURGA
-        </button>
+  const parseLRC = (lrcString) => {
+    if (!lrcString) return [];
+    const lines = lrcString.split('\n');
+    const parsed = [];
+    const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/;
+    
+    for (let i = 0; i < lines.length; i++) {
+      const match = timeRegex.exec(lines[i]);
+      if (match) {
+        const minutes = parseInt(match[1], 10);
+        const seconds = parseInt(match[2], 10);
+        const milliseconds = match[3].length === 2 ? parseInt(match[3], 10) * 10 : parseInt(match[3], 10);
+        const timeInSeconds = minutes * 60 + seconds + milliseconds / 1000;
+        const text = lines[i].replace(timeRegex, '').trim();
+        if (text) {
+          parsed.push({ time: timeInSeconds, text });
+        }
+      }
+    }
+    return parsed;
+  };
+
+  const LyricsPanel = () => {
+    const parsedLyrics = React.useMemo(() => parseLRC(lyrics), [lyrics]);
+    const isSynced = parsedLyrics.length > 0;
+    const lyricsContainerRef = useRef(null);
+
+    const activeDeckInfo = (deckA.track?.name && deckA.isPlaying) ? deckA : (deckB.track?.name && deckB.isPlaying) ? deckB : (deckA.track?.name ? deckA : deckB);
+    const currentTime = activeDeckInfo.time || 0;
+
+    const activeIndex = React.useMemo(() => {
+      if (!isSynced) return -1;
+      let idx = -1;
+      for (let i = 0; i < parsedLyrics.length; i++) {
+        if (currentTime >= parsedLyrics[i].time - 0.2) { // 200ms lead time for better sync feel
+          idx = i;
+        } else {
+          break;
+        }
+      }
+      return idx;
+    }, [parsedLyrics, currentTime, isSynced]);
+
+    useEffect(() => {
+      if (isSynced && activeIndex !== -1 && lyricsContainerRef.current) {
+        const container = lyricsContainerRef.current;
+        const activeElem = container.children[activeIndex];
+        if (activeElem) {
+          const containerHeight = container.clientHeight;
+          const elemTop = activeElem.offsetTop - container.offsetTop;
+          const elemHeight = activeElem.clientHeight;
+          
+          container.scrollTo({
+            top: elemTop - (containerHeight / 2) + (elemHeight / 2),
+            behavior: 'smooth'
+          });
+        }
+      }
+    }, [activeIndex, isSynced]);
+
+    return (
+      <div className="winamp-panel p-4 rounded-lg flex flex-col h-full border-neon-cyan/50 shadow-[0_0_20px_rgba(0,240,255,0.15)] bg-black/80">
+        <div className="flex justify-between items-center mb-3 border-b border-neon-cyan/30 pb-2">
+          <h3 className="font-cyber text-neon-cyan text-sm tracking-widest flex items-center gap-2 glitch-text">
+            <Search size={14} className="text-neon-cyan" /> DATAPAD_LETRAS // v2.0
+          </h3>
+          <button 
+            onClick={() => { setLyrics(''); localStorage.removeItem(`lyrics_${deckA.track?.name || deckB.track?.name || ""}`); }}
+            className="text-[9px] text-neon-magenta hover:text-black hover:bg-neon-magenta transition-all border border-neon-magenta/50 px-2 py-0.5 rounded shadow-[0_0_5px_#ff2d7b]"
+          >
+            FORZAR_PURGA
+          </button>
+        </div>
+        
+        {isSynced ? (
+          <div 
+            ref={lyricsContainerRef}
+            className="w-full flex-1 h-[200px] overflow-y-auto bg-black/60 text-neon-cyan font-mono-retro p-4 rounded border border-neon-cyan/50 custom-scrollbar shadow-[inset_0_0_15px_rgba(0,240,255,0.2)]"
+          >
+            {parsedLyrics.map((line, idx) => {
+              const isActive = idx === activeIndex;
+              return (
+                <div 
+                  key={idx}
+                  className={`py-3 text-center transition-all duration-300 ${
+                    isActive 
+                      ? 'text-neon-magenta text-xl md:text-2xl font-bold drop-shadow-[0_0_10px_#ff2d7b] scale-110 origin-center opacity-100' 
+                      : 'text-neon-cyan/60 opacity-40 text-sm md:text-base'
+                  }`}
+                >
+                  {line.text}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <textarea
+            value={lyrics}
+            onChange={handleLyricsChange}
+            placeholder={deckA.track || deckB.track ? "PEGA O ESCRIBE LAS LETRAS AQUÍ..." : "CARGA UNA PISTA PARA AÑADIR LETRAS..."}
+            className="w-full flex-1 min-h-[200px] bg-black/60 text-neon-cyan font-mono-retro text-sm p-4 rounded border border-neon-cyan/50 focus:border-neon-cyan outline-none resize-none custom-scrollbar shadow-[inset_0_0_15px_rgba(0,240,255,0.2)]"
+          />
+        )}
+        
+        <div className="mt-3 text-[10px] text-neon-cyan/60 font-mono-retro flex justify-between">
+          <span>{isSynced ? '* MODO_KARAOKE: ACTIVO' : '* SINCRONIZANDO CON LOCAL_STORAGE'}</span>
+          <span className="animate-pulse text-neon-yellow">ESTADO: OK</span>
+        </div>
       </div>
-      <textarea
-        value={lyrics}
-        onChange={handleLyricsChange}
-        placeholder={deckA.track || deckB.track ? "PEGA O ESCRIBE LAS LETRAS AQUÍ..." : "CARGA UNA PISTA PARA AÑADIR LETRAS..."}
-        className="w-full flex-1 min-h-[200px] bg-black/60 text-neon-cyan font-mono-retro text-sm p-4 rounded border border-neon-cyan/50 focus:border-neon-cyan outline-none resize-none custom-scrollbar shadow-[inset_0_0_15px_rgba(0,240,255,0.2)]"
-      />
-      <div className="mt-3 text-[10px] text-neon-cyan/60 font-mono-retro flex justify-between">
-        <span>* SINCRONIZANDO CON LOCAL_STORAGE</span>
-        <span className="animate-pulse text-neon-yellow">ESTADO: OK</span>
-      </div>
-    </div>
-  );
+    );
+  };
 
   const DualWaveformDisplay = () => {
     const canvasARef = useRef(null);
