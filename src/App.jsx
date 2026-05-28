@@ -141,13 +141,52 @@ const App = () => {
 
   // Update lyrics when track changes
   useEffect(() => {
+    let isCurrent = true;
     const activeTrack = deckA.track?.name || deckB.track?.name || "";
+    
+    const fetchLyricsForTrack = async (filename) => {
+      try {
+        let cleanName = filename.replace(/\.[^/.]+$/, ""); 
+        cleanName = cleanName.replace(/\([^)]*\)/g, "");
+        cleanName = cleanName.replace(/\[[^\]]*\]/g, "");
+        cleanName = cleanName.replace(/_|-/g, " ");
+        cleanName = cleanName.trim();
+
+        const response = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(cleanName)}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.length > 0 && (data[0].plainLyrics || data[0].syncedLyrics)) {
+            if (!isCurrent) return;
+            const foundLyrics = data[0].plainLyrics || data[0].syncedLyrics;
+            setLyrics(foundLyrics);
+            localStorage.setItem(`lyrics_${filename}`, foundLyrics);
+            showToast("DATOS_RECUPERADOS: Letras sincronizadas.");
+            return;
+          }
+        }
+        
+        if (isCurrent) setLyrics("NO_SE_ENCONTRARON_LETRAS_EN_LA_RED.\n\nPuedes escribirlas o pegarlas manualmente aquí.");
+      } catch (error) {
+        console.error("Error fetching lyrics:", error);
+        if (isCurrent) setLyrics("ERROR_DE_ENLACE: No se pudo contactar al servidor de letras.\n\nPuedes ingresarlas manualmente.");
+      }
+    };
+
     if (activeTrack) {
       const savedLyrics = localStorage.getItem(`lyrics_${activeTrack}`);
-      setLyrics(savedLyrics || "");
+      if (savedLyrics) {
+        setLyrics(savedLyrics);
+      } else {
+        setLyrics("ESTABLECIENDO_CONEXION...\nBuscando letras en la red global...");
+        fetchLyricsForTrack(activeTrack);
+      }
     } else {
       setLyrics("");
     }
+
+    return () => {
+      isCurrent = false;
+    };
   }, [deckA.track, deckB.track]);
 
   const handleLyricsChange = (e) => {
