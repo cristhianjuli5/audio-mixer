@@ -155,9 +155,9 @@ const App = () => {
         const response = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(cleanName)}`);
         if (response.ok) {
           const data = await response.json();
-          if (data && data.length > 0 && (data[0].plainLyrics || data[0].syncedLyrics)) {
+          if (data && data.length > 0 && (data[0].syncedLyrics || data[0].plainLyrics)) {
             if (!isCurrent) return;
-            const foundLyrics = data[0].plainLyrics || data[0].syncedLyrics;
+            const foundLyrics = data[0].syncedLyrics || data[0].plainLyrics;
             setLyrics(foundLyrics);
             localStorage.setItem(`lyrics_${filename}`, foundLyrics);
             showToast("DATOS_RECUPERADOS: Letras sincronizadas.");
